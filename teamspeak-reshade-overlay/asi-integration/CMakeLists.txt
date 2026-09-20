@@ -5,6 +5,12 @@
 # compiled here WITHOUT TSRO_HOST_RESHADE, so the ImGui calls in them bind to the real library
 # rather than to ReShade's inline forwarders.
 
+# MinHook is C, and this is the only part of the project that is. The top-level project()
+# declares CXX alone, so without this CMake has no compiler for those files and fails at
+# generate time with "can not determine linker language for target". Enabled here rather than
+# at the top so a build that does not want the .asi does not need a C compiler at all.
+enable_language(C)
+
 set(TSRO_IMGUI_DIR "${CMAKE_SOURCE_DIR}/third_party/imgui"
     CACHE PATH "Path to a checkout of ocornut/imgui")
 set(TSRO_MINHOOK_DIR "${CMAKE_SOURCE_DIR}/third_party/minhook"

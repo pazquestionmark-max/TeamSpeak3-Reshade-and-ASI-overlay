@@ -121,7 +121,7 @@ compile() {
 
 compile "$CC"  "[c ]" "-w" "${THIRD_PARTY_C[@]}"
 compile "$CXX" "[3p]" "-w -std=c++17" "${THIRD_PARTY_CXX[@]}"
-compile "$CXX" "[  ]" "-std=c++17 -Wall -Wextra -Wshadow" "${OURS[@]}"
+compile "$CXX" "[  ]" "-std=c++17 -Wall -Wextra -Wshadow -Wconversion -Wsign-conversion" "${OURS[@]}"
 [[ $status -eq 0 ]] || exit 1
 
 printf '%-52s ' "link TeamSpeakOverlay.asi"

@@ -25,15 +25,28 @@ endif()
 
 # These two live in the game process and the voice client; both are built for size and speed
 # with no runtime the user must install separately.
+# Scoped to C++ with a generator expression rather than set bare. The .asi build compiles
+# MinHook, which is C, and several of these (/EHsc, /Zc:__cplusplus) mean nothing to a C
+# compiler -- passing them anyway earns a command-line warning, which /WX then turns into a
+# failed build for a file none of it applies to.
 if(MSVC)
-  add_compile_options(/W4 /permissive- /Zc:__cplusplus /utf-8 /EHsc)
+  add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/W4>
+                      $<$<COMPILE_LANGUAGE:CXX>:/permissive->
+                      $<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>
+                      /utf-8
+                      $<$<COMPILE_LANGUAGE:CXX>:/EHsc>)
   if(TSRO_WARNINGS_AS_ERRORS)
-    add_compile_options(/WX)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/WX>)
   endif()
 else()
-  add_compile_options(-Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion)
+  add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wall>
+                      $<$<COMPILE_LANGUAGE:CXX>:-Wextra>
+                      $<$<COMPILE_LANGUAGE:CXX>:-Wpedantic>
+                      $<$<COMPILE_LANGUAGE:CXX>:-Wshadow>
+                      $<$<COMPILE_LANGUAGE:CXX>:-Wconversion>
+                      $<$<COMPILE_LANGUAGE:CXX>:-Wsign-conversion>)
   if(TSRO_WARNINGS_AS_ERRORS)
-    add_compile_options(-Werror)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Werror>)
   endif()
 endif()
 

@@ -71,9 +71,12 @@ ASI_INCLUDES=(
   -I"$ROOT/third_party/imgui"
   -I"$ROOT/third_party/minhook/include"
 )
-# -Wshadow earns its place: MSVC's C4457 (a local hiding a parameter) is an error under
-# warnings-as-errors in CI, and -Wall -Wextra alone does not report it.
-FLAGS=(-std=c++17 -fsyntax-only -Wall -Wextra -Wshadow -DTSRO_VERSION='"1.0.0"' -DTSRO_BUILD_ID='"check"'
+# The warning set matches what CMake gives these sources on a real build, so a diagnostic that
+# would fail CI fails here first. -Wshadow earns its place in particular: MSVC's C4457 (a local
+# hiding a parameter) is an error under warnings-as-errors and -Wall -Wextra alone is silent
+# about it. -Wconversion/-Wsign-conversion stand in for MSVC's C4244/C4267 at /W4.
+FLAGS=(-std=c++17 -fsyntax-only -Wall -Wextra -Wshadow -Wconversion -Wsign-conversion
+       -DTSRO_VERSION='"1.0.0"' -DTSRO_BUILD_ID='"check"'
        -DWIN32_LEAN_AND_MEAN -DNOMINMAX -include objbase.h)
 # The renderer, settings UI, icons and font engine are shared with the .asi build, so they pick
 # their host by definition. Checked here as the ReShade host; the .asi host is checked below
