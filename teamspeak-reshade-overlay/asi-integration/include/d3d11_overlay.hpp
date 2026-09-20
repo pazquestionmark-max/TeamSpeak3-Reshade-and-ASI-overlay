@@ -47,6 +47,12 @@ public:
 
 private:
     bool ensure_initialised(IDXGISwapChain* swap_chain);
+    /// Moves everything that belongs to one swap chain -- back-buffer view, window hook, and
+    /// the D3D11 backend if the device changed too -- onto `swap_chain`. See the note at the
+    /// call site for why a game presents from more than one.
+    bool rebind(IDXGISwapChain* swap_chain);
+    void hook_window(HWND window);
+    void unhook_window();
     bool ensure_render_target(IDXGISwapChain* swap_chain);
     void release_render_target();
     /// Edge-detected fallback for the menu key, used only when the window hook could not be
@@ -61,6 +67,11 @@ private:
     D3D11FontSink sink_;
 
     bool initialised_ = false;
+    /// The swap chain the state below belongs to. Latching onto the first one seen and never
+    /// checking again is what made the overlay invisible on FiveM: it presents a loading-screen
+    /// swap chain first and the game's real one afterwards.
+    IDXGISwapChain* swap_chain_ = nullptr;
+    int rebind_count_ = 0;
     ID3D11Device* device_ = nullptr;
     ID3D11DeviceContext* context_ = nullptr;
     ID3D11RenderTargetView* render_target_ = nullptr;

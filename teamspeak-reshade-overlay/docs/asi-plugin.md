@@ -123,7 +123,10 @@ If you do not see that line, the plugin is not running. Go to
 
 ## The settings window
 
-**Insert** opens and closes it. While it is open the mouse and keyboard go to the window rather
+**Insert** opens and closes it. Insert always works, whatever the profile says — it is polled
+directly every frame, so it does not depend on the profile loading, on the window hook going in,
+or on the plugin having picked the right window. If you bind a different key, that key works
+*as well as* Insert, never instead of it. While it is open the mouse and keyboard go to the window rather
 than to the game; everything the window is not using is passed straight through, so the game
 does not lose keys it still needs.
 
@@ -163,9 +166,15 @@ for `asi`:
 * `Dear ImGui attached to the game's D3D11 swap chain` absent → the game is not Direct3D 11.
   D3D12 and Vulkan are not supported by this front end; use the ReShade add-on.
 
-**Insert does nothing.** If the log says the window procedure could not be hooked, the key is
-being polled instead and only works while the game window is in the foreground. Check nothing
-else has bound Insert.
+**Insert does nothing.** The key is polled every frame while the game is the window in front, so
+this is nearly always one of three things, and the log says which:
+
+* No `settings window opened` line → the press never reached us. `menu key ignored: the
+  foreground window is not ours` means the game did not have focus.
+* No `bound to swap chain` or `Dear ImGui attached` line → nothing is being drawn at all, so the
+  window would be invisible even if it opened.
+* Something else has taken Insert. Bind another key in the profile (`general.menu_key`); it works
+  alongside Insert rather than replacing it.
 
 **Two overlays.** Both front ends are installed. Delete one.
 

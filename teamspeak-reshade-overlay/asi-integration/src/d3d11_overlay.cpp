@@ -2,6 +2,7 @@
 #include "d3d11_overlay.hpp"
 
 #include <cctype>
+#include <cstdint>
 #include <chrono>
 #include <string>
 
@@ -92,11 +93,12 @@ LRESULT CALLBACK D3D11Overlay::wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
 LRESULT D3D11Overlay::handle_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     WNDPROC original = original_wnd_proc_;
 
-    // The menu key is read before ImGui sees it, so the window can always be closed again even
-    // if ImGui has swallowed keyboard focus.
-    if (msg == WM_KEYDOWN && static_cast<int>(wparam) == menu_key_) {
-        menu_open_ = !menu_open_;
-        return 0;
+    // The menu key is deliberately NOT handled here. It is polled once per frame instead, which
+    // works whether or not this hook went in and whichever window ends up with focus -- and
+    // doing it in both places would toggle twice per press and net out to nothing.
+    if (msg == WM_KEYDOWN && (static_cast<int>(wparam) == menu_key_ ||
+                              static_cast<int>(wparam) == VK_INSERT)) {
+        return 0;   // still swallowed, so the game does not also act on it
     }
 
     if (initialised_ && ImGui::GetCurrentContext() != nullptr) {
@@ -117,9 +119,88 @@ LRESULT D3D11Overlay::handle_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM 
     return CallWindowProcW(original, hwnd, msg, wparam, lparam);
 }
 
+void D3D11Overlay::hook_window(HWND window) {
+    if (window == nullptr || window == window_) return;
+    unhook_window();
+    window_ = window;
+    original_wnd_proc_ = reinterpret_cast<WNDPROC>(
+        SetWindowLongPtrW(window_, GWLP_WNDPROC,
+                          reinterpret_cast<LONG_PTR>(&D3D11Overlay::wnd_proc)));
+    if (original_wnd_proc_ == nullptr) {
+        // Not fatal: the menu key is polled every frame regardless, so the settings window can
+        // still be opened. Only mouse and text input into it are affected.
+        TSRO_WARN(kComponent, "the window procedure could not be hooked; the menu key is polled "
+                              "instead and mouse input may not reach the settings window");
+    }
+}
+
+void D3D11Overlay::unhook_window() {
+    if (window_ != nullptr && original_wnd_proc_ != nullptr) {
+        SetWindowLongPtrW(window_, GWLP_WNDPROC,
+                          reinterpret_cast<LONG_PTR>(original_wnd_proc_));
+    }
+    original_wnd_proc_ = nullptr;
+    window_ = nullptr;
+}
+
+/// A game does not necessarily present from one swap chain for its whole life. FiveM shows a
+/// loading screen on one and the game on another; a resolution or display-mode change can
+/// produce a third. Binding to the first one seen and never checking again means drawing into a
+/// back buffer nobody shows any more -- invisible, with every log line still reporting success,
+/// and the window hook left on a window that no longer has focus.
+bool D3D11Overlay::rebind(IDXGISwapChain* swap_chain) {
+    ID3D11Device* device = nullptr;
+    if (FAILED(swap_chain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&device))) ||
+        device == nullptr) {
+        return false;   // not a D3D11 swap chain; leave the old binding alone
+    }
+    DXGI_SWAP_CHAIN_DESC desc = {};
+    if (FAILED(swap_chain->GetDesc(&desc)) || desc.OutputWindow == nullptr) {
+        device->Release();
+        return false;
+    }
+
+    release_render_target();
+    swap_chain_ = swap_chain;
+    ++rebind_count_;
+
+    if (device != device_) {
+        // A different device means the ImGui D3D11 backend and every font texture belong to
+        // something that is going away. Rebuild both.
+        sink_.release();
+        sink_.set_device(nullptr);
+        if (initialised_) ImGui_ImplDX11_Shutdown();
+        if (context_ != nullptr) { context_->Release(); context_ = nullptr; }
+        if (device_ != nullptr) { device_->Release(); device_ = nullptr; }
+        device_ = device;                     // the reference from GetDevice is kept
+        device_->GetImmediateContext(&context_);
+        if (initialised_ && !ImGui_ImplDX11_Init(device_, context_)) {
+            TSRO_ERROR(kComponent, "the D3D11 ImGui backend could not be rebuilt");
+            return false;
+        }
+        sink_.set_device(device_);
+    } else {
+        device->Release();                    // already held
+    }
+
+    hook_window(desc.OutputWindow);
+    // Start the hint again on the swap chain the player is actually looking at. On FiveM the
+    // first one is the loading screen, and a hint that spent its fifteen seconds there was
+    // never seen by anyone.
+    first_frame_ms_ = 0;
+    hint_done_ = false;
+    TSRO_INFO(kComponent, "bound to swap chain " + std::to_string(rebind_count_) + ": " +
+                              std::to_string(desc.BufferDesc.Width) + "x" +
+                              std::to_string(desc.BufferDesc.Height) + ", " +
+                              std::to_string(desc.BufferCount) + " buffer(s), hwnd " +
+                              std::to_string(reinterpret_cast<std::uintptr_t>(desc.OutputWindow)));
+    return true;
+}
+
 bool D3D11Overlay::ensure_initialised(IDXGISwapChain* swap_chain) {
-    if (initialised_) return true;
     if (swap_chain == nullptr) return false;
+    // The swap chain being presented is not necessarily the one we bound to last frame.
+    if (initialised_) return swap_chain == swap_chain_ ? true : rebind(swap_chain);
 
     ID3D11Device* device = nullptr;
     if (FAILED(swap_chain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&device))) ||
@@ -137,7 +218,8 @@ bool D3D11Overlay::ensure_initialised(IDXGISwapChain* swap_chain) {
 
     device_ = device;  // the reference from GetDevice is kept until shutdown
     device_->GetImmediateContext(&context_);
-    window_ = desc.OutputWindow;
+    swap_chain_ = swap_chain;
+    rebind_count_ = 1;
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -151,7 +233,7 @@ bool D3D11Overlay::ensure_initialised(IDXGISwapChain* swap_chain) {
 
     ImGui::StyleColorsDark();
 
-    if (!ImGui_ImplWin32_Init(window_)) {
+    if (!ImGui_ImplWin32_Init(desc.OutputWindow)) {
         TSRO_ERROR(kComponent, "the Win32 ImGui backend could not be initialised");
         ImGui::DestroyContext();
         return false;
@@ -163,18 +245,14 @@ bool D3D11Overlay::ensure_initialised(IDXGISwapChain* swap_chain) {
         return false;
     }
 
-    original_wnd_proc_ = reinterpret_cast<WNDPROC>(
-        SetWindowLongPtrW(window_, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&D3D11Overlay::wnd_proc)));
-    if (original_wnd_proc_ == nullptr) {
-        // Not fatal: the menu key is polled instead, and the settings window then works with
-        // whatever input ImGui's backend can still see.
-        TSRO_WARN(kComponent, "the window procedure could not be hooked; the menu key is polled "
-                              "instead and mouse input may not reach the settings window");
-    }
+    hook_window(desc.OutputWindow);
 
     sink_.set_device(device_);
     initialised_ = true;
-    TSRO_INFO(kComponent, "Dear ImGui attached to the game's D3D11 swap chain");
+    TSRO_INFO(kComponent, "Dear ImGui attached: " + std::to_string(desc.BufferDesc.Width) + "x" +
+                              std::to_string(desc.BufferDesc.Height) + ", " +
+                              std::to_string(desc.BufferCount) + " buffer(s), hwnd " +
+                              std::to_string(reinterpret_cast<std::uintptr_t>(desc.OutputWindow)));
     return true;
 }
 
@@ -204,10 +282,43 @@ void D3D11Overlay::on_resize_buffers() {
     release_render_target();
 }
 
+/// True when the window in front belongs to this process.
+///
+/// Checked against the process rather than against our own HWND on purpose: a game can own
+/// several windows, and focus does not always sit on the one whose swap chain we draw into.
+/// Comparing handles meant a missed key with no way for anyone to tell why.
+namespace {
+bool foreground_is_ours() {
+    const HWND fg = GetForegroundWindow();
+    if (fg == nullptr) return false;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(fg, &pid);
+    return pid == GetCurrentProcessId();
+}
+}  // namespace
+
 void D3D11Overlay::poll_menu_key() {
-    const bool down = (GetAsyncKeyState(menu_key_) & 0x8000) != 0;
-    // Only when this window has the foreground: a background game must not eat the key.
-    if (down && !menu_key_was_down_ && GetForegroundWindow() == window_) menu_open_ = !menu_open_;
+    // Insert is always live, on top of whatever key the profile names. It is the one documented
+    // everywhere and the one people reach for, and a settings window that cannot be opened is a
+    // plugin with no way to configure it -- so it does not depend on the profile parsing, on the
+    // window hook going in, or on us having picked the right window.
+    const bool down = ((GetAsyncKeyState(menu_key_) & 0x8000) != 0) ||
+                      ((GetAsyncKeyState(VK_INSERT) & 0x8000) != 0);
+
+    // Edge off the raw key state first and test the foreground second, not the other way round.
+    // Folding focus into `down` means a key held while another window was in front fires the
+    // moment focus comes back, which reads as the overlay opening itself.
+    if (down && !menu_key_was_down_) {
+        if (foreground_is_ours()) {
+            menu_open_ = !menu_open_;
+            hint_done_ = true;
+            TSRO_INFO(kComponent, menu_open_ ? "settings window opened" : "settings window closed");
+        } else {
+            // Worth a line: "the key does nothing" and "the key is being ignored because the
+            // game is not in front" look identical from the outside.
+            TSRO_DEBUG(kComponent, "menu key ignored: the foreground window is not ours");
+        }
+    }
     menu_key_was_down_ = down;
 }
 
@@ -252,7 +363,7 @@ void D3D11Overlay::on_present(IDXGISwapChain* swap_chain) {
     // Re-read every frame so changing the key in the settings window takes effect at once.
     menu_key_name_ = host_->menu_key_name();
     menu_key_ = virtual_key_from_name(menu_key_name_);
-    if (original_wnd_proc_ == nullptr) poll_menu_key();
+    poll_menu_key();
 
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
@@ -284,11 +395,7 @@ void D3D11Overlay::on_present(IDXGISwapChain* swap_chain) {
 }
 
 void D3D11Overlay::shutdown() {
-    if (window_ != nullptr && original_wnd_proc_ != nullptr) {
-        SetWindowLongPtrW(window_, GWLP_WNDPROC,
-                          reinterpret_cast<LONG_PTR>(original_wnd_proc_));
-        original_wnd_proc_ = nullptr;
-    }
+    unhook_window();
     if (initialised_) {
         // Font textures first: they were made on the device that is about to be released.
         sink_.release();
@@ -301,7 +408,7 @@ void D3D11Overlay::shutdown() {
     release_render_target();
     if (context_ != nullptr) { context_->Release(); context_ = nullptr; }
     if (device_ != nullptr) { device_->Release(); device_ = nullptr; }
-    window_ = nullptr;
+    swap_chain_ = nullptr;
     menu_open_ = false;
 }
 
