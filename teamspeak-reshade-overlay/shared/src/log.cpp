@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdio>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <algorithm>
 
@@ -66,15 +67,27 @@ void Logger::configure(LogLevel level, bool to_file, std::string file_path, int 
     file_path_ = std::move(file_path);
     max_bytes_ = static_cast<std::uint64_t>(max_file_kb > 0 ? max_file_kb : 1024) *
                  static_cast<std::uint64_t>(1024);
-    bytes_ = 0;
     if (ring_.size() != ring_capacity_) {
         ring_.assign(ring_capacity_, LogEntry{});
         ring_next_ = 0;
     }
-    if (to_file_) {
-        // Truncate on configure so each run starts with its own log rather than appending to an
-        // arbitrarily old one.
+    if (to_file_ && file_path_ != opened_path_) {
+        // Truncate the first time a run opens a given file, so each run starts with its own log
+        // rather than appending to an arbitrarily old one -- but only the first time. A host
+        // that configures logging early (to catch a failure during start-up) and then again
+        // from the loaded profile would otherwise erase the very lines it configured early to
+        // capture, which is the worst possible moment to lose them.
         std::ofstream truncate(file_path_, std::ios::binary | std::ios::trunc);
+        opened_path_ = file_path_;
+        bytes_ = 0;
+    } else if (to_file_) {
+        // Same file, second call: keep what is there and carry on counting from its size, so
+        // rotation still happens at the size the user asked for.
+        std::error_code ec;
+        const auto existing = std::filesystem::file_size(file_path_, ec);
+        bytes_ = ec ? 0 : static_cast<std::uint64_t>(existing);
+    } else {
+        bytes_ = 0;
     }
 }
 

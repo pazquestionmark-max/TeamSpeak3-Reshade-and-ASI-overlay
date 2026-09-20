@@ -12,6 +12,7 @@
 #define TSRO_D3D11_OVERLAY_HPP
 
 #include <cstdint>
+#include <string>
 
 #include <d3d11.h>
 #include <dxgi.h>
@@ -51,6 +52,9 @@ private:
     /// Edge-detected fallback for the menu key, used only when the window hook could not be
     /// installed -- without it there would be no way to open the settings at all.
     void poll_menu_key();
+    /// A few seconds of "I am here, and this is the key" on first load. See the note on
+    /// kHintMs in the .cpp for why this is not optional polish.
+    void draw_startup_hint(std::int64_t now_ms);
     LRESULT handle_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 
     overlay::OverlayHost* host_ = nullptr;
@@ -64,8 +68,12 @@ private:
     WNDPROC original_wnd_proc_ = nullptr;
 
     int menu_key_ = VK_INSERT;
+    std::string menu_key_name_ = "INSERT";
     bool menu_open_ = false;
     bool menu_key_was_down_ = false;
+
+    std::int64_t first_frame_ms_ = 0;
+    bool hint_done_ = false;
 };
 
 /// The one instance the hooks call into. A single global rather than a parameter because a

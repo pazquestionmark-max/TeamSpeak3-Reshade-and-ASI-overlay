@@ -32,7 +32,9 @@
 
 #include <atomic>
 #include <cstdint>
+#include <filesystem>
 #include <string>
+#include <system_error>
 
 #include <d3d11.h>
 #include <dxgi.h>
@@ -238,9 +240,28 @@ bool install_hooks() {
     return true;
 }
 
+/// Opens the log before anything can fail.
+///
+/// The hooks go in before the profile is read -- they have to, see the note at the top of this
+/// file -- which means every diagnostic from install_hooks() would otherwise be written before
+/// the logger had a file to write to, and lost. A failure to attach is precisely the failure
+/// with no other symptom: the game runs, the overlay does not, and nothing says why. So the
+/// default path is opened first, and OverlayHost::start() later refines the level and
+/// destination from the profile without discarding what is already there.
+void open_log_early() {
+    const std::string root = tsro::ProfileStore::default_root();
+    if (root.empty()) return;
+    std::error_code ec;
+    std::filesystem::create_directories(root, ec);
+    tsro::Logger::instance().configure(tsro::LogLevel::Info, true, root + "/tsro-overlay.log", 1024);
+}
+
 /// Everything that must not happen on the loader lock: MinHook suspends threads, and creating a
 /// D3D device loads more DLLs. Both deadlock if attempted from DllMain.
 DWORD WINAPI bootstrap(LPVOID) {
+    open_log_early();
+    TSRO_INFO(kComponent, std::string("TeamSpeak Overlay .asi ") + TSRO_VERSION + " (build " +
+                              TSRO_BUILD_ID + ") loaded; attaching to the renderer");
     // Hooks first and nothing before them: see the note at the top of this file. Reading a
     // profile off disk takes milliseconds, and spending those milliseconds before the patch
     // goes in is spending them on the wrong side of the one window where the patch is safe.

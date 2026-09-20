@@ -67,6 +67,17 @@ bool is_input_message(UINT msg) {
     }
 }
 
+/// How long the startup hint stays up.
+///
+/// Not decoration. The shipped default profile hides the HUD entirely while TeamSpeak is closed
+/// or its plugin is not enabled -- which is the correct thing for everyday use and completely
+/// wrong for the first launch, because a working overlay and a broken one then look identical:
+/// nothing on screen either way. Under ReShade there is at least a menu entry to find. Here
+/// there is nothing but a key nobody has been told about yet. So the plugin says so itself,
+/// once, and then gets out of the way.
+constexpr std::int64_t kHintMs = 15000;
+constexpr std::int64_t kHintFadeMs = 2500;
+
 }  // namespace
 
 D3D11Overlay& overlay_instance() {
@@ -200,12 +211,47 @@ void D3D11Overlay::poll_menu_key() {
     menu_key_was_down_ = down;
 }
 
+void D3D11Overlay::draw_startup_hint(std::int64_t now) {
+    // Opening the settings answers the question the hint exists to answer.
+    if (menu_open_) hint_done_ = true;
+    if (hint_done_) return;
+    const std::int64_t age = now - first_frame_ms_;
+    if (age > kHintMs) { hint_done_ = true; return; }
+
+    float alpha = 1.0f;
+    if (age > kHintMs - kHintFadeMs) {
+        alpha = static_cast<float>(kHintMs - age) / static_cast<float>(kHintFadeMs);
+    }
+    if (alpha <= 0.0f) return;
+
+    const std::string line =
+        "Paz' TeamSpeak Overlay " TSRO_VERSION "  -  press " + menu_key_name_ + " for settings";
+
+    // ImGui's own font, not the overlay's: the font engine may still be baking its first atlas,
+    // and a hint that does not draw for two seconds is a hint that misses its moment.
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    if (dl == nullptr) return;
+    const ImVec2 size = ImGui::CalcTextSize(line.c_str());
+    const ImVec2 screen = ImGui::GetIO().DisplaySize;
+    const float x = (screen.x - size.x) * 0.5f;
+    const float y = screen.y * 0.08f;
+    const float pad = 8.0f;
+
+    const auto fade = [alpha](float a) { return static_cast<unsigned>(a * alpha * 255.0f) << 24; };
+    dl->AddRectFilled(ImVec2(x - pad, y - pad * 0.5f),
+                      ImVec2(x + size.x + pad, y + size.y + pad * 0.5f),
+                      fade(0.60f) | 0x00100C0Au, 4.0f);
+    dl->AddText(ImVec2(x + 1.0f, y + 1.0f), fade(0.85f) | 0x00000000u, line.c_str());
+    dl->AddText(ImVec2(x, y), fade(1.0f) | 0x00FFFFFFu, line.c_str());
+}
+
 void D3D11Overlay::on_present(IDXGISwapChain* swap_chain) {
     if (host_ == nullptr || !host_->started()) return;
     if (!ensure_initialised(swap_chain)) return;
     if (!ensure_render_target(swap_chain)) return;
     // Re-read every frame so changing the key in the settings window takes effect at once.
-    menu_key_ = virtual_key_from_name(host_->menu_key_name());
+    menu_key_name_ = host_->menu_key_name();
+    menu_key_ = virtual_key_from_name(menu_key_name_);
     if (original_wnd_proc_ == nullptr) poll_menu_key();
 
     ImGui_ImplDX11_NewFrame();
@@ -214,6 +260,9 @@ void D3D11Overlay::on_present(IDXGISwapChain* swap_chain) {
 
     ImGuiIO& io = ImGui::GetIO();
     io.MouseDrawCursor = menu_open_;
+
+    if (first_frame_ms_ == 0) first_frame_ms_ = now_ms();
+    draw_startup_hint(now_ms());
 
     Viewport viewport;
     viewport.width = io.DisplaySize.x;

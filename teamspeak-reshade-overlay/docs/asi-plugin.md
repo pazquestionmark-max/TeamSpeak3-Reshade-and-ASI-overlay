@@ -108,6 +108,19 @@ project and none is needed.
 
 4. Start the game and press **Insert**.
 
+## First launch
+
+For the first 15 seconds after the game starts, the plugin prints a line across the top of the
+screen naming itself and the key that opens its settings. It then gets out of the way, and does
+not come back unless you reinstall.
+
+That exists because the shipped profile hides the HUD entirely while TeamSpeak is closed or its
+plugin is not enabled — right for everyday use, wrong for a first launch, when a working overlay
+and a broken one would otherwise look identical: nothing on screen either way.
+
+If you do not see that line, the plugin is not running. Go to
+[When nothing appears](#when-nothing-appears).
+
 ## The settings window
 
 **Insert** opens and closes it. While it is open the mouse and keyboard go to the window rather

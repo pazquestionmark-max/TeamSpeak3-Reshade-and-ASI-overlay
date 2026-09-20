@@ -55,6 +55,9 @@ private:
     bool to_file_ = false;
     bool include_content_ = false;
     std::string file_path_;
+    /// The file this process has already truncated, so a second configure() to the same path
+    /// appends rather than starting over. Empty until the first file is opened.
+    std::string opened_path_;
     std::uint64_t max_bytes_ = 1024ull * 1024ull;
     std::uint64_t bytes_ = 0;
     std::vector<LogEntry> ring_;
