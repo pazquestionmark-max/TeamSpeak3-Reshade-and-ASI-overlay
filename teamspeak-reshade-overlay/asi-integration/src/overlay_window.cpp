@@ -9,6 +9,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 
 #include <imgui.h>
@@ -115,15 +116,55 @@ bool create_rtv() {
     return SUCCEEDED(hr) && g_rtv != nullptr;
 }
 
+/// Loads a DLL from System32 by absolute path.
+///
+/// This matters more than it looks. ReShade installs itself as a proxy dxgi.dll and ENBSeries
+/// as a proxy d3d11.dll, both of which are already loaded under those names by the time we run.
+/// Calling D3D11CreateDevice or CreateDXGIFactory2 the ordinary way therefore calls *them*, and
+/// asking a screen-space effect wrapper to make a composition swap chain for somebody else's
+/// window crashed inside ReShade's dxgi (dxgi.dll+0xA816) before the overlay drew a pixel.
+///
+/// Our window is nothing to do with the game's rendering and has no business going through the
+/// game's graphics mods, so it asks Windows for the real implementations by full path.
+HMODULE system_library(const char* name) {
+    char path[MAX_PATH] = {};
+    const UINT n = GetSystemDirectoryA(path, static_cast<UINT>(sizeof(path)));
+    if (n == 0 || n >= sizeof(path)) return nullptr;
+    std::string full(path, n);
+    full += "\\";
+    full += name;
+    return LoadLibraryA(full.c_str());
+}
+
+using CreateFactory2Fn = HRESULT(WINAPI*)(UINT, REFIID, void**);
+using D3D11CreateDeviceFn = HRESULT(WINAPI*)(IDXGIAdapter*, D3D_DRIVER_TYPE, HMODULE, UINT,
+                                             const D3D_FEATURE_LEVEL*, UINT, UINT, ID3D11Device**,
+                                             D3D_FEATURE_LEVEL*, ID3D11DeviceContext**);
+
 bool create_device(HWND hwnd, UINT width, UINT height) {
+    const HMODULE real_d3d11 = system_library("d3d11.dll");
+    const HMODULE real_dxgi = system_library("dxgi.dll");
+    if (real_d3d11 == nullptr || real_dxgi == nullptr) {
+        TSRO_ERROR(kComponent, "the system d3d11.dll/dxgi.dll could not be loaded");
+        return false;
+    }
+    const auto create_d3d11 =
+        reinterpret_cast<D3D11CreateDeviceFn>(GetProcAddress(real_d3d11, "D3D11CreateDevice"));
+    const auto create_factory =
+        reinterpret_cast<CreateFactory2Fn>(GetProcAddress(real_dxgi, "CreateDXGIFactory2"));
+    if (create_d3d11 == nullptr || create_factory == nullptr) {
+        TSRO_ERROR(kComponent, "D3D11CreateDevice/CreateDXGIFactory2 could not be resolved");
+        return false;
+    }
+
     D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0};
-    HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
-                                   D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels, 2, D3D11_SDK_VERSION,
-                                   &g_device, nullptr, &g_context);
+    HRESULT hr = create_d3d11(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
+                              D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels, 2, D3D11_SDK_VERSION,
+                              &g_device, nullptr, &g_context);
     IDXGIDevice* dxgi = nullptr;
     IDXGIFactory2* factory = nullptr;
     if (SUCCEEDED(hr)) hr = g_device->QueryInterface(IID_PPV_ARGS(&dxgi));
-    if (SUCCEEDED(hr)) hr = CreateDXGIFactory2(0, IID_PPV_ARGS(&factory));
+    if (SUCCEEDED(hr)) hr = create_factory(0, IID_PPV_ARGS(&factory));
     if (SUCCEEDED(hr)) {
         // A composition swap chain rather than an hwnd one: it is what lets the surface carry
         // real per-pixel alpha, so the game shows through everywhere we have not drawn instead
@@ -148,8 +189,11 @@ bool create_device(HWND hwnd, UINT width, UINT height) {
     release(factory);
     release(dxgi);
     if (FAILED(hr)) {
-        TSRO_ERROR(kComponent, "the overlay's own D3D11/DirectComposition surface could not be "
-                               "created; the plugin will not draw");
+        char code[32] = {};
+        std::snprintf(code, sizeof(code), "0x%08lX", static_cast<unsigned long>(hr));
+        TSRO_ERROR(kComponent, std::string("the overlay's own D3D11/DirectComposition surface "
+                                           "could not be created (") + code +
+                                   "); the plugin will not draw");
         return false;
     }
     g_width = width;
