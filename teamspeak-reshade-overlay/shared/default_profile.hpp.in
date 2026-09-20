@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: MIT
+// GENERATED FILE -- do not edit.
+//
+// CMake writes this from examples/profiles/default.json. It is the profile a fresh install
+// starts with, embedded in the binary rather than read from a data file: the add-on is copied
+// on its own into a game folder and the .asi into a plugins folder, so anything that has to sit
+// beside them would routinely be left behind. Embedding it means a first run looks the same
+// however the release was unpacked, and generating it from the example means the file people
+// read and the bytes people get cannot drift apart.
+#ifndef TSRO_DEFAULT_PROFILE_HPP
+#define TSRO_DEFAULT_PROFILE_HPP
+
+namespace tsro {
+
+inline constexpr const char* kDefaultProfileJson = R"TSRO_JSON(@TSRO_DEFAULT_PROFILE_JSON@)TSRO_JSON";
+
+}  // namespace tsro
+
+#endif  // TSRO_DEFAULT_PROFILE_HPP

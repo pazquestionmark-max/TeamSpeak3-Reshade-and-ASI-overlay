@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "tsro/config.hpp"
+#include "tsro/default_profile.hpp"
 #include "tsro_test.hpp"
 
 using namespace tsro;
@@ -260,4 +261,38 @@ TEST(config, alpha_scaling_is_clamped) {
     CHECK_EQ(c.with_alpha_scale(0.5f).a, 100);
     CHECK_EQ(c.with_alpha_scale(-1.0f).a, 0);
     CHECK_EQ(c.with_alpha_scale(9.0f).a, 200);
+}
+
+TEST(config, the_menu_key_is_restricted_to_keys_a_game_does_not_need) {
+    ConfigDiagnostics diag;
+    Config c = Config::defaults();
+    c.general.menu_key = "W";
+    c.clamp(diag);
+    CHECK_EQ(c.general.menu_key, std::string("INSERT"));
+
+    diag = ConfigDiagnostics{};
+    c.general.menu_key = "f9";   // case is the user's business, not ours
+    c.clamp(diag);
+    CHECK_EQ(c.general.menu_key, std::string("F9"));
+}
+
+// The profile a fresh install is seeded with is generated into the binary by CMake from
+// examples/profiles/default.json. If that file ever stops parsing, every first run silently
+// falls back to the compiled-in defaults instead -- which is exactly the kind of thing nobody
+// notices until someone asks why the overlay looks nothing like the screenshots.
+TEST(config, the_embedded_default_profile_parses_without_repairs) {
+    ConfigDiagnostics diag;
+    const Config c = Config::parse(kDefaultProfileJson, diag);
+    for (const ConfigIssue& issue : diag.issues) {
+        if (issue.severity == ConfigIssue::Severity::Info) continue;
+        // An unknown-keys note is expected (the file carries a _comment); anything else is a
+        // value this build would have had to repair, and the shipped profile should not need it.
+        CHECK(issue.path == "");
+    }
+    CHECK_EQ(c.general.profile_name, std::string("default"));
+    // Two values that were wrong in the profile this was taken from, and would be invisible
+    // bugs rather than loud ones: a friend value of 0 colours nobody, and a font file that is
+    // not shipped falls back silently.
+    CHECK_EQ(c.user_list.teamspeak_friend_value, 2);
+    CHECK_EQ(c.appearance.font_file, std::string("Roboto-Medium.ttf"));
 }

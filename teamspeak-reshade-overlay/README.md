@@ -2,12 +2,13 @@
 
 See who is in your TeamSpeak channel, and who is talking, without leaving the game.
 
-A TeamSpeak 3 plugin publishes your channel and its members over a local named pipe; a ReShade
-add-on draws them inside the game's own render pipeline. Inspired by TSNotifier in purpose, not
-in implementation — no assets or code are taken from it.
+A TeamSpeak 3 plugin publishes your channel and its members over a local named pipe; a front end
+inside the game draws them in its own render pipeline. There are two front ends — a ReShade
+add-on and a standalone `.asi` plugin — and they share everything but their entry point.
+Inspired by TSNotifier in purpose, not in implementation — no assets or code are taken from it.
 
 > **Status: the logic is thoroughly tested; the Windows binaries are not yet field-tested.**
-> 284 automated tests pass on every push, covering the protocol, state machine, configuration,
+> 344 automated tests pass on every push, covering the protocol, state machine, configuration,
 > layout, notifications and end-to-end IPC over a real socket, plus cross-validation between two
 > independent implementations of the wire format. The Windows build is defined in CI but has not
 > been run on hardware by the author, and the overlay has not yet been rendered in a real game
@@ -42,12 +43,27 @@ open. Full reasoning: [`docs/architecture.md`](docs/architecture.md).
 
 ## Install
 
-You need **ReShade with add-on support** (not the "addon-free" download).
+Pick one front end. Both show the same HUD and read the same profiles.
+
+**ReShade add-on** — preferred. Needs **ReShade with add-on support** (not the "addon-free"
+download).
 
 1. `plugin\tsro_overlay_win64.dll` → `%APPDATA%\TS3Client\plugins\`, then enable it in
    TeamSpeak → Tools → Options → Addons → Plugins.
 2. `addon\TeamSpeakOverlay.addon64` → next to the game's ReShade DLL.
 3. In game: Home → Add-ons → TeamSpeak Overlay.
+
+**`.asi` plugin** — for people who do not want ReShade. Direct3D 11, x64.
+
+1. The same TeamSpeak plugin as above.
+2. `asi\TeamSpeakOverlay.asi` → your ASI loader's plugins folder
+   (`%LOCALAPPDATA%\FiveM\FiveM.app\plugins\` for FiveM).
+3. In game: press **Insert**.
+
+The `.asi` build gets its frame by hooking the game's DXGI swap chain, which is what a
+code-integrity check looks for; an anti-cheat that sees it cannot tell this overlay from
+something that is not one, and FiveM servers in pure mode block `.asi` plugins outright. Read
+[`docs/asi-plugin.md`](docs/asi-plugin.md) before installing it. Install one front end, not both.
 
 Full instructions, including building from source:
 [`docs/installation.md`](docs/installation.md).
@@ -57,11 +73,14 @@ Full instructions, including building from source:
 ```
 shared/               platform-independent C++17 core — no TeamSpeak, ReShade, ImGui or Win32
 teamspeak-plugin/     Component B: the TeamSpeak 3 plugin (Plugin API 26)
-reshade-integration/  Component A: the ReShade add-on (renderer, settings UI, icons)
+reshade-integration/  Component A: the overlay itself (renderer, settings UI, icons, font
+                      engine, host) plus the ReShade add-on's entry point
+asi-integration/      Component A's second front end: the standalone .asi (DXGI hook, own ImGui)
 tools/config-tool/    tsro-config: defaults, validation, schema probing
 tools/tsro-cli/       TypeScript: configuration tooling and the mock-plugin test harness
 tests/               C++ unit and integration tests
-examples/profiles/   five example configurations, validated in CI
+examples/profiles/   six example configurations, validated in CI; default.json is the one a
+                     fresh install is seeded with
 docs/                architecture, protocol, configuration, compatibility, testing, troubleshooting
 ```
 
@@ -104,6 +123,12 @@ cd tools/tsro-cli && npx tsx src/cli.ts mock --scenario chatter
 `scripts/fetch-deps.sh` (or `.ps1`) retrieves the pinned ReShade SDK, Dear ImGui and TeamSpeak
 Plugin SDK headers. None of them are redistributed here. ReShade and ImGui must be a matched
 pair — including ImGui's **docking** branch — and CMake fails with an explanation if they are not.
+
+MinHook is the one exception: it is vendored in `third_party/minhook/`, because the `.asi` build
+links it into the shipped binary and a source archive should build on its own.
+[`third_party/minhook/UPSTREAM.md`](third_party/minhook/UPSTREAM.md) records the exact upstream
+commit, the single file that differs from it, and what that difference requires of callers. Its
+BSD-2 notice is in [`LICENSE`](LICENSE).
 
 ## Documentation
 

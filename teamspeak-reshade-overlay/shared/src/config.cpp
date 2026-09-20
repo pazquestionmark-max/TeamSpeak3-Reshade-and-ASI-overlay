@@ -2,6 +2,7 @@
 #include "tsro/config.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 
 #include "tsro/protocol.hpp"
@@ -380,6 +381,7 @@ json::Value Config::to_json() const {
         o.set("profile_name", json::Value(general.profile_name));
         o.set("auto_profile_by_executable", json::Value(general.auto_profile_by_executable));
         o.set("advanced_settings", json::Value(general.advanced_settings));
+        o.set("menu_key", json::Value(general.menu_key));
         root.set("general", std::move(o));
     }
     {
@@ -636,6 +638,7 @@ Config Config::from_json(const json::Value& root, ConfigDiagnostics& diag) {
         g.s("profile_name", c.general.profile_name, 64);
         g.b("auto_profile_by_executable", c.general.auto_profile_by_executable);
         g.b("advanced_settings", c.general.advanced_settings);
+        g.s("menu_key", c.general.menu_key, 16);
     }
     {
         const R a = r.sub("appearance");
@@ -885,6 +888,14 @@ Config Config::from_json(const json::Value& root, ConfigDiagnostics& diag) {
     return c;
 }
 
+const std::vector<std::string>& menu_key_names() {
+    static const std::vector<std::string> kNames = {
+        "INSERT", "HOME", "END", "DELETE", "PAUSE", "SCROLL",
+        "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+    };
+    return kNames;
+}
+
 void Config::clamp(ConfigDiagnostics& diag) {
     if (integration.reconnect_max_ms < integration.reconnect_initial_ms) {
         diag.add(ConfigIssue::Severity::Info, "integration.reconnect_max_ms",
@@ -906,6 +917,15 @@ void Config::clamp(ConfigDiagnostics& diag) {
         diag.add(ConfigIssue::Severity::Warning, "logging.level",
                  "unrecognised level; reset to 'info'");
         logging.level = "info";
+    }
+    for (char& c : general.menu_key) {
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+    const std::vector<std::string>& keys = menu_key_names();
+    if (std::find(keys.begin(), keys.end(), general.menu_key) == keys.end()) {
+        diag.add(ConfigIssue::Severity::Warning, "general.menu_key",
+                 "not one of the keys the settings window can be bound to; reset to 'INSERT'");
+        general.menu_key = "INSERT";
     }
 }
 

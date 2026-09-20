@@ -29,6 +29,11 @@ jobs:
         run: teamspeak-reshade-overlay/scripts/fetch-deps.sh
       - name: Cross-compile the Windows-only sources
         run: teamspeak-reshade-overlay/scripts/check-windows-sources.sh
+      # The .asi front end links a real Dear ImGui rather than routing through ReShade's
+      # function table, so an unresolved symbol is its most likely failure and a syntax-only
+      # check cannot see one. This builds it all the way to a DLL.
+      - name: Cross-link the .asi front end
+        run: teamspeak-reshade-overlay/scripts/check-asi-link.sh
 
   node:
     name: Tooling tests
@@ -77,7 +82,8 @@ jobs:
       - name: Configure
         run: >
           cmake -S teamspeak-reshade-overlay -B build -A x64
-          -DTSRO_BUILD_PLUGIN=ON -DTSRO_BUILD_ADDON=ON -DTSRO_WARNINGS_AS_ERRORS=ON
+          -DTSRO_BUILD_PLUGIN=ON -DTSRO_BUILD_ADDON=ON -DTSRO_BUILD_ASI=ON
+          -DTSRO_WARNINGS_AS_ERRORS=ON
       - name: Build
         run: cmake --build build --config Release -j
       - name: Test
@@ -85,9 +91,10 @@ jobs:
       - name: Stage the distribution
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist/plugin, dist/addon, dist/profiles, dist/fonts | Out-Null
+          New-Item -ItemType Directory -Force -Path dist/plugin, dist/addon, dist/asi, dist/profiles, dist/fonts | Out-Null
           Copy-Item build/teamspeak-plugin/Release/*.dll dist/plugin/
           Copy-Item build/reshade-integration/Release/*.addon64 dist/addon/
+          Copy-Item build/asi-integration/Release/*.asi dist/asi/
           Copy-Item teamspeak-reshade-overlay/examples/profiles/*.json dist/profiles/
           Copy-Item teamspeak-reshade-overlay/assets/fonts/* dist/fonts/
           Copy-Item teamspeak-reshade-overlay/docs/installation.md, teamspeak-reshade-overlay/docs/troubleshooting.md, teamspeak-reshade-overlay/LICENSE dist/

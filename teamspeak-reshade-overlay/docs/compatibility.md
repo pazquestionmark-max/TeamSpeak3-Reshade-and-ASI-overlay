@@ -8,11 +8,13 @@ supported on the strength of merely compiling.
 
 | Check | Runs where | Status |
 |---|---|---|
-| Core library, protocol, state, config, layout, IPC — 237 tests | Linux, CI | **verified** |
+| Core library, protocol, state, config, layout, IPC — 297 tests | Linux, CI | **verified** |
 | Tooling and cross-implementation schema parity — 47 tests | Linux, CI | **verified** |
 | Windows-only sources cross-compiled (MinGW) | Linux, CI | **verified** |
-| Plugin and add-on built with MSVC | Windows, CI | **expected** — the CI job is defined and is the authoritative build; it has not been run by the author on a Windows machine |
+| `.asi` front end cross-built and **linked** (MinGW) | Linux, CI | **verified** — it links a real Dear ImGui rather than ReShade's function table, so unresolved symbols are its likeliest failure and a syntax check cannot see them |
+| Plugin, add-on and `.asi` built with MSVC | Windows, CI | **expected** — the CI job is defined and is the authoritative build; it has not been run by the author on a Windows machine |
 | Rendering in a real game | manual | **untested** — see [`testing.md`](testing.md) for the matrix to work through |
+| The `.asi` build's DXGI hooks | manual | **untested** — a swap-chain hook cannot be exercised without Windows and a running game. CI proves it compiles and links; nothing proves a frame draws |
 | Against a live TeamSpeak client | manual | **untested** — same |
 
 This is the honest position: the logic is tested thoroughly and automatically, the Windows
@@ -27,7 +29,10 @@ binaries are not yet proven on hardware. Do not treat the table below as field-t
 | TeamSpeak 5 / 6 | **not supported** | Those clients do not load TeamSpeak 3 native plugins. Their "remote apps" interface is a different mechanism; supporting it would be a second plugin, not a port of this one. |
 | ReShade | 6.4.1 and newer, **with add-on support** | The "addon-free" ReShade download deliberately omits the add-on API and cannot load this. Compatibility floor is set by the SDK pin below. |
 | Dear ImGui | **v1.91.8-docking** (`IMGUI_VERSION_NUM` 19180) | Must be the docking branch: ReShade's add-on ImGui function table declares `DockSpace`, `ImGuiDockNodeFlags` and `ImGuiWindowClass`, which exist only there. CMake checks both the version and the branch and fails with an explanation. |
-| Graphics APIs | D3D9, D3D10, D3D11, D3D12, OpenGL, Vulkan | We draw through ReShade's ImGui layer, so whichever backends your ReShade build supports, the overlay supports. We add no API-specific code. |
+| Graphics APIs (ReShade add-on) | D3D9, D3D10, D3D11, D3D12, OpenGL, Vulkan | We draw through ReShade's ImGui layer, so whichever backends your ReShade build supports, the overlay supports. We add no API-specific code. |
+| Graphics APIs (`.asi` plugin) | **D3D11 only** | Without ReShade there is no API-independent layer to draw through, so this front end carries its own Dear ImGui D3D11 backend. It hooks `IDXGISwapChain::Present`/`Present1`/`ResizeBuffers`; a swap chain that will not give it an `ID3D11Device` is left untouched and the overlay simply does not draw. D3D12 and Vulkan need the add-on. |
+| `.asi` architecture | **x64 only** | The vendored MinHook carries the 64-bit half of its length-disassembler. A 32-bit game uses the add-on. |
+| `.asi` loading | at process start, via an ASI loader | Not injectable into a running game: the patch is written without suspending threads, which is safe only before the first frame. See [`asi-plugin.md`](asi-plugin.md). |
 | Display modes | Exclusive fullscreen, borderless, windowed | We render inside the game's own present chain, so all three behave identically. |
 | VR | **not supported** | ReShade does not invoke `reshade_overlay` for VR effect runtimes. Documented in ReShade's own header. |
 

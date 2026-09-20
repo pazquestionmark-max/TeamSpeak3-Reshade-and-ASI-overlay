@@ -53,10 +53,7 @@ message(STATUS "ReShade add-on: Dear ImGui ${TSRO_IMGUI_VERSION} (docking) match
 
 add_library(tsro_addon SHARED
   src/addon.cpp
-  src/font_engine.cpp
-  src/renderer.cpp
-  src/settings_ui.cpp
-  src/icons.cpp
+  ${TSRO_OVERLAY_SOURCES}
 )
 
 target_include_directories(tsro_addon
@@ -71,6 +68,9 @@ target_include_directories(tsro_addon
 # declarations those inline definitions attach to -- which is why every source that calls ImGui
 # must include reshade.hpp as well, or it links against nothing.
 target_compile_definitions(tsro_addon PRIVATE
+  # Picks the ReShade half of the sources shared with the .asi build: the ImGui calls route
+  # through ReShade's function table, and the font atlas is uploaded through its device API.
+  TSRO_HOST_RESHADE
   IMGUI_DISABLE_OBSOLETE_FUNCTIONS
   IMGUI_DISABLE_DEMO_WINDOWS
   WIN32_LEAN_AND_MEAN

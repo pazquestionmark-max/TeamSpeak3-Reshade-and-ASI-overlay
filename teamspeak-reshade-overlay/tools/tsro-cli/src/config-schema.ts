@@ -83,6 +83,14 @@ export const RULES: Readonly<Record<string, Rule>> = {
   'general.scale': { kind: 'number', min: 0.25, max: 4 },
   'general.profile_name': { kind: 'string', maxLength: 64 },
   'general.auto_profile_by_executable': { kind: 'boolean' },
+  // The key that opens the settings window in the standalone .asi build. A closed list rather
+  // than any key: a profile has no business binding something you drive with. The C++ side
+  // upper-cases before checking, so the vocabulary here is upper case only.
+  'general.menu_key': {
+    kind: 'enum',
+    values: ['INSERT', 'HOME', 'END', 'DELETE', 'PAUSE', 'SCROLL',
+             'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12'],
+  },
 
   'appearance.font_size': { kind: 'number', min: 6, max: 96 },
   'appearance.icon_size': { kind: 'number', min: 2, max: 96 },

@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(TSRO_BUILD_TESTS "Build the unit and integration test suite" ON)
 option(TSRO_BUILD_PLUGIN "Build the TeamSpeak 3 plugin (Windows only)" OFF)
 option(TSRO_BUILD_ADDON "Build the ReShade add-on (Windows only)" OFF)
+option(TSRO_BUILD_ASI "Build the standalone .asi plugin (Windows only)" OFF)
 option(TSRO_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -43,8 +44,25 @@ if(TSRO_BUILD_PLUGIN)
   add_subdirectory(teamspeak-plugin)
 endif()
 
+# The overlay proper -- renderer, settings window, icons, font engine and the host object that
+# owns profiles and the IPC client -- knows nothing about ReShade or about hooking D3D. Both
+# front ends compile exactly these sources and differ only in their entry point and their font
+# texture sink, so the list lives here rather than being copied into two CMakeLists that drift.
+set(TSRO_OVERLAY_SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/reshade-integration/src/overlay_host.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/reshade-integration/src/font_engine.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/reshade-integration/src/renderer.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/reshade-integration/src/settings_ui.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/reshade-integration/src/icons.cpp
+)
+set(TSRO_OVERLAY_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/reshade-integration/include)
+
 if(TSRO_BUILD_ADDON)
   add_subdirectory(reshade-integration)
+endif()
+
+if(TSRO_BUILD_ASI)
+  add_subdirectory(asi-integration)
 endif()
 
 if(TSRO_BUILD_TESTS)

@@ -8,10 +8,15 @@
 #include <cstdio>
 
 #include <imgui.h>
-// reshade.hpp must follow imgui.h: it supplies the inline definitions for ImGui:: and
-// ImDrawList:: that route through ReShade's function table. imgui.h alone only declares them,
-// so omitting this compiles cleanly and then fails at link with unresolved externals.
+// Two hosts, one renderer.
+//
+// Under ReShade this must follow imgui.h: reshade.hpp supplies the inline definitions for the
+// ImGui:: and ImDrawList:: members that imgui.h only declares, routing them through ReShade's
+// function table. The .asi build owns its own ImGui instead, links the real library, and must
+// not see those definitions at all.
+#if defined(TSRO_HOST_RESHADE)
 #include <reshade.hpp>
+#endif
 
 #include "icons.hpp"
 

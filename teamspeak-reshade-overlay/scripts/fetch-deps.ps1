@@ -61,6 +61,7 @@ Write-Host "Dependencies are in ${vendor}:"
 Write-Host "  ReShade SDK   $ReShadeTag"
 Write-Host "  Dear ImGui    $ImGuiTag"
 Write-Host "  TeamSpeak SDK $(if ($Ts3Commit) { $Ts3Commit } else { $Ts3Ref })"
+Write-Host "  MinHook       vendored in third_party/minhook (not fetched)"
 Write-Host ''
 Write-Host 'Verify the ImGui pairing before building the add-on -- these two numbers must be equal:'
 Select-String -Path (Join-Path $vendor 'reshade/include/reshade_overlay.hpp') -Pattern 'IMGUI_VERSION_NUM !=' | Select-Object -First 1

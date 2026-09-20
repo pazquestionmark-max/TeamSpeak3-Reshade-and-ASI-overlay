@@ -11,9 +11,14 @@
 #include <unordered_map>
 
 #include <imgui.h>
-// reshade.hpp must follow imgui.h: it supplies the inline definitions for ImDrawList:: that
-// route through ReShade's function table.
+// Two hosts, one font engine.
+//
+// Under ReShade this must follow imgui.h: reshade.hpp supplies the inline definitions for the
+// ImDrawList:: members that imgui.h only declares, routing them through ReShade's function
+// table. The .asi build owns its own ImGui, links the real library, and must not see them.
+#if defined(TSRO_HOST_RESHADE)
 #include <reshade.hpp>
+#endif
 
 // stb_truetype, vendored with Dear ImGui. STBTT_STATIC keeps every symbol internal to this
 // translation unit, so nothing here can collide with a copy ReShade or the game already has.
@@ -141,8 +146,6 @@ struct FontEngine::Impl {
         std::vector<std::uint32_t> pending;   ///< codepoints asked for but not yet baked
         bool dirty = true;
         std::uint64_t texture_handle = 0;
-        reshade::api::resource texture{};
-        reshade::api::resource_view view{};
         std::uint64_t used_frame = 0;
     };
 
@@ -156,17 +159,14 @@ struct FontEngine::Impl {
     int weight = 400;
     std::string error;
 
-    reshade::api::device* device = nullptr;
+    FontTextureSink* sink = nullptr;
     std::map<int, Atlas> atlases;
     std::uint64_t frame = 0;
 
     void unload_textures() {
-        if (device != nullptr) {
+        if (sink != nullptr) {
             for (auto& [px, atlas] : atlases) {
-                if (atlas.view.handle != 0) device->destroy_resource_view(atlas.view);
-                if (atlas.texture.handle != 0) device->destroy_resource(atlas.texture);
-                atlas.view = {};
-                atlas.texture = {};
+                if (atlas.texture_handle != 0) sink->destroy(atlas.texture_handle);
                 atlas.texture_handle = 0;
             }
         }
@@ -243,9 +243,8 @@ struct FontEngine::Impl {
             for (auto i = atlases.begin(); i != atlases.end(); ++i) {
                 if (i->second.used_frame < oldest->second.used_frame) oldest = i;
             }
-            if (device != nullptr) {
-                if (oldest->second.view.handle != 0) device->destroy_resource_view(oldest->second.view);
-                if (oldest->second.texture.handle != 0) device->destroy_resource(oldest->second.texture);
+            if (sink != nullptr && oldest->second.texture_handle != 0) {
+                sink->destroy(oldest->second.texture_handle);
             }
             atlases.erase(oldest);
         }
@@ -263,7 +262,7 @@ struct FontEngine::Impl {
     /// Rebuilding wholesale rather than patching keeps the packer trivial and happens only when
     /// the size or the character set changes, which is to say almost never after the first frame.
     bool rebuild(Atlas& a) {
-        if (!face_loaded || device == nullptr) return false;
+        if (!face_loaded || sink == nullptr) return false;
 
         std::vector<std::uint32_t> wanted;
         wanted.reserve(a.glyphs.size() + a.pending.size());
@@ -398,35 +397,15 @@ struct FontEngine::Impl {
             }
         }
 
-        reshade::api::resource texture{};
-        reshade::api::resource_view view{};
-        const reshade::api::resource_desc desc(
-            static_cast<std::uint32_t>(dim), static_cast<std::uint32_t>(dim), 1, 1,
-            reshade::api::format::r8g8b8a8_unorm, 1, reshade::api::memory_heap::gpu_only,
-            reshade::api::resource_usage::shader_resource);
-        reshade::api::subresource_data initial{};
-        initial.data = pixels.data();
-        initial.row_pitch = static_cast<std::uint32_t>(dim) * 4u;
-        initial.slice_pitch = initial.row_pitch * static_cast<std::uint32_t>(dim);
-        if (!device->create_resource(desc, &initial,
-                                     reshade::api::resource_usage::shader_resource, &texture)) {
+        const std::uint64_t texture =
+            sink->create(pixels.data(), dim, dim);
+        if (texture == 0) {
             error = "the graphics device refused the font texture";
             return false;
         }
-        if (!device->create_resource_view(
-                texture, reshade::api::resource_usage::shader_resource,
-                reshade::api::resource_view_desc(reshade::api::format::r8g8b8a8_unorm, 0, 1, 0, 1),
-                &view)) {
-            device->destroy_resource(texture);
-            error = "the graphics device refused the font texture view";
-            return false;
-        }
 
-        if (a.view.handle != 0) device->destroy_resource_view(a.view);
-        if (a.texture.handle != 0) device->destroy_resource(a.texture);
-        a.texture = texture;
-        a.view = view;
-        a.texture_handle = view.handle;
+        if (a.texture_handle != 0) sink->destroy(a.texture_handle);
+        a.texture_handle = texture;
         a.width = dim;
         a.height = dim;
         a.glyphs = std::move(packed);
@@ -539,14 +518,14 @@ bool FontEngine::select(const std::string& file, int face_index) {
 const std::string& FontEngine::selected_file() const noexcept { return impl_->file; }
 int FontEngine::selected_face_index() const noexcept { return impl_->face_index; }
 
-void FontEngine::begin_frame(reshade::api::device* device) {
-    if (device != impl_->device) {
-        // A different device means every texture we hold belongs to something that is gone.
+void FontEngine::begin_frame(FontTextureSink* sink) {
+    if (sink != impl_->sink) {
+        // A different sink means every texture we hold belongs to a device that is gone.
         impl_->atlases.clear();
-        impl_->device = device;
+        impl_->sink = sink;
     }
     ++impl_->frame;
-    if (!impl_->face_loaded || device == nullptr) return;
+    if (!impl_->face_loaded || sink == nullptr) return;
     // One rebuild per frame: a font or size change costs a hitch, never a stall.
     for (auto& [px, atlas] : impl_->atlases) {
         if (atlas.dirty || !atlas.pending.empty()) {
@@ -567,7 +546,7 @@ void FontEngine::release() { impl_->unload_textures(); }
 bool FontEngine::ready_at(float px) { return impl_->live_atlas(px) != nullptr; }
 
 bool FontEngine::ready() const noexcept {
-    if (!impl_->face_loaded || impl_->device == nullptr) return false;
+    if (!impl_->face_loaded || impl_->sink == nullptr) return false;
     for (const auto& [px, atlas] : impl_->atlases) {
         if (atlas.texture_handle != 0) return true;
     }

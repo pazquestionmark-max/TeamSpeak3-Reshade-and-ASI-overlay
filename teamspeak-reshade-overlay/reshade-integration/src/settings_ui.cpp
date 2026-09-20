@@ -6,10 +6,15 @@
 #include <cstring>
 
 #include <imgui.h>
-// reshade.hpp must follow imgui.h: it supplies the inline definitions for ImGui:: and
-// ImDrawList:: that route through ReShade's function table. imgui.h alone only declares them,
-// so omitting this compiles cleanly and then fails at link with unresolved externals.
+// Two hosts, one renderer.
+//
+// Under ReShade this must follow imgui.h: reshade.hpp supplies the inline definitions for the
+// ImGui:: and ImDrawList:: members that imgui.h only declares, routing them through ReShade's
+// function table. The .asi build owns its own ImGui instead, links the real library, and must
+// not see those definitions at all.
+#if defined(TSRO_HOST_RESHADE)
 #include <reshade.hpp>
+#endif
 
 #include "icons.hpp"
 
@@ -288,6 +293,29 @@ void SettingsUi::set_status(std::string message, bool error) {
     status_is_error_ = error;
 }
 
+namespace {
+
+/// The settings-window key. Only the standalone .asi build reads it -- under ReShade this
+/// window lives inside ReShade's own menu, which has its own key -- so it says so rather than
+/// leaving ReShade users wondering why pressing it does nothing.
+void menu_key_control(Config& config, SettingsActions& actions) {
+    const std::vector<std::string>& keys = menu_key_names();
+    int current = 0;
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+        if (keys[i] == config.general.menu_key) current = static_cast<int>(i);
+    }
+    std::vector<const char*> labels;
+    labels.reserve(keys.size());
+    for (const std::string& key : keys) labels.push_back(key.c_str());
+    if (ImGui::Combo("Open this window with", &current, labels.data(),
+                     static_cast<int>(labels.size()))) {
+        config.general.menu_key = keys[static_cast<std::size_t>(current)];
+        actions.config_changed = true;
+    }
+}
+
+}  // namespace
+
 void SettingsUi::tab_general(Config& config, SettingsActions& actions) {
     actions.config_changed |= ImGui::Checkbox("Overlay enabled", &config.general.enabled);
     actions.config_changed |=
@@ -315,6 +343,11 @@ void SettingsUi::tab_general(Config& config, SettingsActions& actions) {
                             "appear. The chat panel is shown even if you have it hidden, so you "
                             "can position it.");
     }
+
+    ImGui::SeparatorText("Settings window (.asi plugin only)");
+    menu_key_control(config, actions);
+    help("Used by the standalone .asi build, which has no menu of its own to live in. The "
+         "ReShade add-on ignores it: there this window is opened from ReShade's menu.");
 
     ImGui::SeparatorText("Settings");
     if (ImGui::Checkbox("Show every setting", &config.general.advanced_settings)) {
@@ -1636,6 +1669,13 @@ void SettingsUi::basic_view(Config& config, const LinkDiagnostics& diagnostics,
         if (ul.show_friend_tag) {
             actions.config_changed |= colour_edit("Nickname", ul.friend_tag_color);
         }
+    }
+
+    if (ImGui::CollapsingHeader("Settings window (.asi plugin only)")) {
+        menu_key_control(config, actions);
+        ImGui::TextDisabled("Used by the standalone .asi build, which has no menu of its own to "
+                            "live in. The ReShade add-on ignores it: there this window is opened "
+                            "from ReShade's menu.");
     }
 
     if (ImGui::CollapsingHeader("Profiles")) {

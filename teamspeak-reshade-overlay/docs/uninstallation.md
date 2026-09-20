@@ -3,12 +3,16 @@
 Removal is deleting files. Nothing in this project writes to the registry, installs a service or
 a driver, modifies TeamSpeak's or ReShade's own files, or leaves a background process.
 
-## 1. Remove the ReShade add-on
+## 1. Remove the game-side front end
 
-Delete `TeamSpeakOverlay.addon64` from the game folder.
+**ReShade add-on:** delete `TeamSpeakOverlay.addon64` from the game folder.
 
 Leave everything else alone. ReShade's own DLL, its `.ini`, your presets and your shaders are not
 ours and removing them would break ReShade for that game.
+
+**`.asi` plugin:** delete `TeamSpeakOverlay.asi` from your ASI loader's plugins folder
+(`%LOCALAPPDATA%\FiveM\FiveM.app\plugins\` for FiveM). Nothing else was installed for it: no
+registry keys, no modified game files, no background process.
 
 ## 2. Remove the TeamSpeak plugin
 

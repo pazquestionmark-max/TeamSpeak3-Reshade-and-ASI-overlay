@@ -2,7 +2,12 @@ build/
 out/
 dist/
 node_modules/
+# Fetched by scripts/fetch-deps, never committed: the ReShade SDK, Dear ImGui and the TeamSpeak
+# Plugin SDK. MinHook is the exception -- it is a small BSD-2 library that the .asi build links
+# into the binary, its notice is in LICENSE, and vendoring it keeps the source archive buildable
+# on its own. See teamspeak-reshade-overlay/third_party/minhook/UPSTREAM.md.
 third_party/
+!teamspeak-reshade-overlay/third_party/minhook/
 *.user
 *.suo
 .vs/

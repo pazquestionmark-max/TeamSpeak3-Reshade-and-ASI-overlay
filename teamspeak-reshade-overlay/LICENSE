@@ -27,3 +27,51 @@ Systems GmbH, the ReShade project, or TSNotifier. It interoperates with the
 TeamSpeak 3 Client Plugin SDK and the ReShade add-on API; those projects are
 distributed under their own licences by their own authors, and neither their
 source nor their binaries are redistributed here.
+
+---
+
+Third-party code redistributed in this repository
+-------------------------------------------------
+
+MinHook, in third_party/minhook/, is redistributed under the BSD 2-Clause
+licence and is included in the .asi build. See third_party/minhook/UPSTREAM.md
+for the exact upstream commit and the one file that differs from it.
+
+  MinHook - The Minimalistic API Hooking Library for x64/x86
+  Copyright (C) 2009-2017 Tsuda Kageyu.
+  All rights reserved.
+
+  Hacker Disassembler Engine 64 C
+  Copyright (c) 2008-2009, Vyacheslav Patkov.
+  All rights reserved.
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions
+  are met:
+
+   1. Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+   2. Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+  TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+  PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER
+  OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+  EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+  LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Dear ImGui and the ReShade SDK are NOT redistributed here: scripts/fetch-deps
+retrieves them at build time. The .asi build links Dear ImGui (MIT, Copyright
+(c) 2014-2025 Omar Cornut), and the release archives therefore contain it in
+compiled form.
+
+The fonts in assets/fonts/ are Dear ImGui's bundled set: Roboto and Karla under
+the Apache Licence 2.0, Cousine under the Apache Licence 2.0, and Droid Sans
+under the Apache Licence 2.0. Their own licence files ship with Dear ImGui.

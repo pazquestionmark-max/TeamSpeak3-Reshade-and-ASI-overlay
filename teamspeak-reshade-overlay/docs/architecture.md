@@ -94,6 +94,35 @@ handling. The ReShade add-on renders inside the game's own present chain and the
 identically in exclusive fullscreen, borderless and windowed modes. The companion process in
 this repository is a *tool*, not a renderer — see §4.
 
+### 1.4 Two front ends, one overlay
+
+ReShade is the preferred host and everything above is written against it. But requiring ReShade
+is a real cost to people who do not want it, so Component A has a second front end: a standalone
+`.asi` plugin.
+
+The split is drawn at exactly one place. Everything the overlay *is* — the renderer, the settings
+window, the icons, the font engine, and `OverlayHost`, which owns the profile store, the IPC
+client and the per-frame sequencing — is host-independent and compiled identically into both.
+Each front end supplies only two things:
+
+1. **A Dear ImGui frame.** Under ReShade, the `reshade_overlay` event hands us one, and the
+   `ImGui::` calls in the shared sources resolve to ReShade's inline forwarders over its function
+   table. In the `.asi` build there is no such thing, so it creates its own ImGui context with
+   the Win32 and D3D11 backends and links a real Dear ImGui. That choice is made by a single
+   preprocessor symbol, `TSRO_HOST_RESHADE`, and by which library the target links.
+2. **A `FontTextureSink`.** The font engine rasterises and packs an atlas itself and then needs
+   somewhere to put it: ReShade's device API in one build, `ID3D11Device::CreateTexture2D` in the
+   other. Two implementations of a two-method interface, and the rest of the font engine — the
+   rasterising, packing, measuring and drawing — is shared.
+
+The cost of the second front end is the part that cannot be shared: getting a frame at all. It
+replaces three entries in the DXGI swap chain's vtable (`Present`, `Present1`, `ResizeBuffers`)
+with MinHook, finding the vtable by creating a throwaway device of its own rather than by
+scanning the game's code. That is a hook in a game process, with everything that implies —
+[`asi-plugin.md`](asi-plugin.md) states the risk plainly rather than burying it. It is also why
+ReShade remains the recommended host: ReShade is widely allowlisted, and a home-grown hook is
+not.
+
 ---
 
 ## 2. Component topology
@@ -122,6 +151,10 @@ this repository is a *tool*, not a renderer — see §4.
   │  profiles, protocol mock     │
   └──────────────────────────────┘
 ```
+
+The game-process side is drawn with the ReShade add-on. The `.asi` front end replaces only the
+outermost box — ReShade goes, the hook and its own ImGui take its place — and everything from
+*IPC client thread* inward is the same code (§1.4).
 
 The plugin is the **pipe server** and the overlay is the **pipe client**. This is deliberate and
 not arbitrary: there is exactly one TeamSpeak client but an unbounded, churning set of game

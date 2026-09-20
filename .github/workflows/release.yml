@@ -26,10 +26,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The .asi front end is 64-bit only: the vendored MinHook ships the 64-bit half of its
+          # length-disassembler, and every ASI loader worth supporting is x64. A 32-bit game
+          # uses the ReShade add-on.
           - arch: x64
             cmake_arch: x64
+            build_asi: "ON"
           - arch: x86
             cmake_arch: Win32
+            build_asi: "OFF"
     steps:
       - uses: actions/checkout@v4
 
@@ -42,6 +47,7 @@ jobs:
           cmake -S teamspeak-reshade-overlay -B build-${{ matrix.arch }}
           -A ${{ matrix.cmake_arch }}
           -DTSRO_BUILD_PLUGIN=ON -DTSRO_BUILD_ADDON=ON -DTSRO_BUILD_TESTS=ON
+          -DTSRO_BUILD_ASI=${{ matrix.build_asi }}
 
       - name: Build
         run: cmake --build build-${{ matrix.arch }} --config Release -j
@@ -65,15 +71,36 @@ jobs:
           Copy-Item "teamspeak-reshade-overlay/docs/installation.md","teamspeak-reshade-overlay/docs/uninstallation.md","teamspeak-reshade-overlay/docs/troubleshooting.md","teamspeak-reshade-overlay/docs/compatibility.md" "$stage/"
           Get-ChildItem -Recurse $stage | Select-Object FullName, Length
 
+      # A second, self-contained archive for people who do not use ReShade. Same TeamSpeak
+      # plugin, same profiles, same fonts -- only the front end differs -- so it is packaged
+      # separately rather than as an extra folder nobody would find, and carries its own
+      # install notes because the risks and the install location are not the add-on's.
+      - name: Stage the .asi archive
+        if: matrix.build_asi == 'ON'
+        shell: pwsh
+        run: |
+          $stage = "stage-asi-${{ matrix.arch }}"
+          New-Item -ItemType Directory -Force -Path "$stage/plugin","$stage/asi","$stage/profiles","$stage/tools","$stage/fonts" | Out-Null
+          Copy-Item "build-${{ matrix.arch }}/teamspeak-plugin/Release/*.dll" "$stage/plugin/"
+          Copy-Item "build-${{ matrix.arch }}/asi-integration/Release/TeamSpeakOverlay.asi" "$stage/asi/"
+          Copy-Item "build-${{ matrix.arch }}/tools/config-tool/Release/tsro-config.exe" "$stage/tools/"
+          Copy-Item "teamspeak-reshade-overlay/examples/profiles/*.json" "$stage/profiles/"
+          Copy-Item "teamspeak-reshade-overlay/assets/fonts/*" "$stage/fonts/"
+          Copy-Item "teamspeak-reshade-overlay/LICENSE" "$stage/"
+          Copy-Item "teamspeak-reshade-overlay/docs/asi-plugin.md","teamspeak-reshade-overlay/docs/installation.md","teamspeak-reshade-overlay/docs/uninstallation.md","teamspeak-reshade-overlay/docs/troubleshooting.md","teamspeak-reshade-overlay/docs/compatibility.md" "$stage/"
+          Get-ChildItem -Recurse $stage | Select-Object FullName, Length
+
       - name: Record what was built
         shell: pwsh
         run: |
-          $stage = "stage-${{ matrix.arch }}"
-          $hashes = Get-ChildItem -Recurse -File $stage |
-            Get-FileHash -Algorithm SHA256 |
-            ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Resolve-Path -Relative $_.Path) }
-          $hashes | Out-File -Encoding utf8 "$stage/SHA256SUMS.txt"
-          Get-Content "$stage/SHA256SUMS.txt"
+          foreach ($stage in @("stage-${{ matrix.arch }}", "stage-asi-${{ matrix.arch }}")) {
+            if (-not (Test-Path $stage)) { continue }
+            $hashes = Get-ChildItem -Recurse -File $stage |
+              Get-FileHash -Algorithm SHA256 |
+              ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Resolve-Path -Relative $_.Path) }
+            $hashes | Out-File -Encoding utf8 "$stage/SHA256SUMS.txt"
+            Get-Content "$stage/SHA256SUMS.txt"
+          }
 
       - name: Package
         shell: pwsh
@@ -81,10 +108,24 @@ jobs:
           Compress-Archive -Path "stage-${{ matrix.arch }}/*" `
             -DestinationPath "teamspeak-reshade-overlay-${{ matrix.arch }}.zip"
 
+      - name: Package the .asi archive
+        if: matrix.build_asi == 'ON'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "stage-asi-${{ matrix.arch }}/*" `
+            -DestinationPath "teamspeak-overlay-asi-${{ matrix.arch }}.zip"
+
       - uses: actions/upload-artifact@v4
         with:
           name: teamspeak-reshade-overlay-${{ matrix.arch }}
           path: teamspeak-reshade-overlay-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.build_asi == 'ON'
+        with:
+          name: teamspeak-overlay-asi-${{ matrix.arch }}
+          path: teamspeak-overlay-asi-${{ matrix.arch }}.zip
           if-no-files-found: error
 
   publish:
@@ -129,7 +170,7 @@ jobs:
 
           ### Status — please read before installing
 
-          These binaries are built by CI with MSVC and pass the full automated suite (284 tests:
+          These binaries are built by CI with MSVC and pass the full automated suite (297 tests:
           protocol, state machine, configuration, layout, notifications, and end-to-end IPC over
           a real socket). They have **not** yet been run in a game against a live TeamSpeak
           client by the maintainers. Treat this as a first release to try, not as battle-tested
@@ -139,14 +180,32 @@ jobs:
           If something does not work, `troubleshooting.md` is symptom-first and the overlay's
           Diagnostics tab will usually tell you the answer directly.
 
+          ### Which archive
+
+          The overlay ships two front ends. Both show the same HUD, read the same profiles and
+          talk to the same TeamSpeak plugin — they differ only in how they get into the game.
+
+          | Archive | Front end | Use it when |
+          |---|---|---|
+          | `teamspeak-reshade-overlay-x64.zip` | ReShade add-on | You already use ReShade, or can install it. **Preferred.** |
+          | `teamspeak-reshade-overlay-x86.zip` | ReShade add-on | 32-bit game or 32-bit TeamSpeak client. |
+          | `teamspeak-overlay-asi-x64.zip` | Standalone `.asi` | You do not want ReShade. Read `asi-plugin.md` first. |
+
+          The `.asi` build gets its frame by hooking the game's DXGI swap chain. That is what a
+          code-integrity check looks for, and an anti-cheat that sees it cannot tell this
+          overlay from something that is not one. FiveM servers in "pure mode" block `.asi`
+          plugins outright. The ReShade add-on is the lower-risk of the two; the `.asi` exists
+          so the overlay does not *require* ReShade, not because hooking is free.
+
           ### Requirements
 
           - Windows 10 (1809+) or 11
-          - **ReShade with add-on support** — the "addon-free" download cannot load this
+          - For the add-on: **ReShade with add-on support** — the "addon-free" download cannot
+            load this. For the `.asi`: a 64-bit D3D11 game and an ASI loader.
           - TeamSpeak **3.6.x** (Plugin API 26). TeamSpeak 5 and 6 do not load TeamSpeak 3
             plugins and are not supported.
 
-          ### Install
+          ### Install — ReShade add-on
 
           1. `plugin\tsro_overlay_win64.dll` → `%APPDATA%\TS3Client\plugins\`, then enable it in
              TeamSpeak → Tools → Options → Addons → Plugins
@@ -155,6 +214,17 @@ jobs:
 
           Use the `x86` archive for a 32-bit game or a 32-bit TeamSpeak client. Full instructions
           are in `installation.md`; removal is in `uninstallation.md` and is just deleting files.
+
+          ### Install — `.asi` plugin
+
+          1. `plugin\tsro_overlay_win64.dll` → `%APPDATA%\TS3Client\plugins\`, as above
+          2. `asi\TeamSpeakOverlay.asi` → your ASI loader's plugins folder. For FiveM that is
+             `%LOCALAPPDATA%\FiveM\FiveM.app\plugins\`
+          3. In game: press **Insert**
+
+          Install one front end or the other, not both — two copies of the overlay would draw
+          two copies of the HUD. `asi-plugin.md` covers the details, including what to expect on
+          a pure-mode server.
 
           ### Privacy
 

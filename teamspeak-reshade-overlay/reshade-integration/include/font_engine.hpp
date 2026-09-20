@@ -24,11 +24,21 @@
 
 struct ImDrawList;
 
-namespace reshade::api {
-struct device;
-}
-
 namespace tsro::overlay {
+
+/// Where a baked atlas goes once it exists.
+///
+/// The only part of the font engine that differs between hosts: under ReShade the texture is
+/// created through its device API, and in the .asi build directly on the game's D3D device. The
+/// rasterising, packing, measuring and drawing above it are identical, so they are written once
+/// and the upload is passed in.
+class FontTextureSink {
+public:
+    virtual ~FontTextureSink() = default;
+    /// Uploads `width` x `height` RGBA8 pixels and returns the ImTextureID for them, or 0.
+    virtual std::uint64_t create(const unsigned char* rgba, int width, int height) = 0;
+    virtual void destroy(std::uint64_t texture) = 0;
+};
 
 /// A font file found in the overlay's `fonts` folder.
 struct FontFile {
@@ -66,9 +76,9 @@ public:
     const std::string& selected_file() const noexcept;
     int selected_face_index() const noexcept;
 
-    /// Called once per frame before any drawing, with the device the overlay is rendering on.
+    /// Called once per frame before any drawing, with whatever will hold the atlas textures.
     /// Uploads at most one atlas per frame so a font change costs a hitch, not a stall.
-    void begin_frame(reshade::api::device* device);
+    void begin_frame(FontTextureSink* sink);
     /// Releases every texture. Safe to call with a device that is already gone.
     void release();
 

@@ -1,11 +1,20 @@
 # Installation
 
-Two pieces go in two different places: a plugin inside TeamSpeak, and an add-on beside the game's
-ReShade. They find each other over a local pipe; there is nothing to configure to connect them.
+Two pieces go in two different places: a plugin inside TeamSpeak, and a front end inside the
+game. They find each other over a local pipe; there is nothing to configure to connect them.
 
-**Before you start:** you need ReShade **with add-on support**. The "addon-free" download on
-reshade.me deliberately omits the add-on API and cannot load this overlay. If you already have
-ReShade, re-run its installer and pick the full version.
+**Pick a front end first.** The TeamSpeak plugin (step 1) is the same either way.
+
+* **ReShade add-on** — step 2 below. Preferred, and what the rest of this page assumes. You need
+  ReShade **with add-on support**: the "addon-free" download on reshade.me deliberately omits the
+  add-on API and cannot load this overlay. If you already have ReShade, re-run its installer and
+  pick the full version.
+* **Standalone `.asi` plugin** — no ReShade at all, Direct3D 11 and x64 only. It gets its frame
+  by hooking the game's swap chain, which carries a risk the add-on does not.
+  [`asi-plugin.md`](asi-plugin.md) covers it end to end, including that risk. Do step 1 here,
+  then follow that page instead of step 2.
+
+Install one front end, not both — two would draw two copies of the HUD.
 
 ## 1. Install the TeamSpeak plugin
 
@@ -61,7 +70,7 @@ You do not need to build anything to use the overlay. If you want to:
 
 ```
 scripts\fetch-deps.ps1
-cmake -S . -B build -A x64 -DTSRO_BUILD_PLUGIN=ON -DTSRO_BUILD_ADDON=ON
+cmake -S . -B build -A x64 -DTSRO_BUILD_PLUGIN=ON -DTSRO_BUILD_ADDON=ON -DTSRO_BUILD_ASI=ON
 cmake --build build --config Release
 ctest --test-dir build -C Release
 ```
@@ -76,6 +85,8 @@ Outputs:
 
 * `build\teamspeak-plugin\Release\tsro_overlay_win64.dll`
 * `build\reshade-integration\Release\TeamSpeakOverlay.addon64`
+* `build\asi-integration\Release\TeamSpeakOverlay.asi` (x64 only; omit `-DTSRO_BUILD_ASI=ON`
+  if you do not want it)
 
 ## Uninstalling
 

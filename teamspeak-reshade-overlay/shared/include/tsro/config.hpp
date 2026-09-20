@@ -101,6 +101,11 @@ bool parse_enum(std::string_view, ChatOrder&) noexcept;
 bool parse_enum(std::string_view, StackDirection&) noexcept;
 bool parse_enum(std::string_view, NotificationBorder&) noexcept;
 
+/// The keys the settings window may be bound to in the standalone .asi build, in the order a
+/// picker should show them. A short closed list on purpose: a profile has no business binding
+/// W, or Escape, or anything else a game needs while it is being played.
+const std::vector<std::string>& menu_key_names();
+
 /// Applies `easing` to t∈[0,1].
 float ease(Easing, float t) noexcept;
 
@@ -162,6 +167,13 @@ struct GeneralConfig {
     /// Show every setting. Off by default: the common ones fit on two tabs, and burying them in
     /// two hundred others helps nobody.
     bool advanced_settings = false;
+    /// Which key opens the settings window in the standalone .asi build, by name -- "INSERT",
+    /// "HOME", "F1".."F12", "PAUSE" or "SCROLL". The ReShade add-on ignores this: there the
+    /// settings window lives inside ReShade's own menu, which has its own key.
+    ///
+    /// A name rather than a virtual-key number so the file stays readable, and a small closed
+    /// list rather than any key so a profile cannot bind something the game needs.
+    std::string menu_key = "INSERT";
 };
 
 struct AppearanceConfig {

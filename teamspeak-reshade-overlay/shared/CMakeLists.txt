@@ -22,6 +22,17 @@ add_library(tsro_shared STATIC
 )
 
 target_include_directories(tsro_shared PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+# The profile a fresh install starts with, embedded rather than shipped as a data file: both
+# front ends are copied on their own into someone else's folder, so a file expected to sit
+# beside them would routinely be left behind. Generated from the example that people actually
+# read, so the two cannot drift.
+set(TSRO_DEFAULT_PROFILE_FILE "${CMAKE_CURRENT_SOURCE_DIR}/../examples/profiles/default.json")
+file(READ "${TSRO_DEFAULT_PROFILE_FILE}" TSRO_DEFAULT_PROFILE_JSON)
+configure_file(default_profile.hpp.in
+               "${CMAKE_CURRENT_BINARY_DIR}/generated/tsro/default_profile.hpp" @ONLY)
+target_include_directories(tsro_shared PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${TSRO_DEFAULT_PROFILE_FILE}")
 set_target_properties(tsro_shared PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 find_package(Threads REQUIRED)

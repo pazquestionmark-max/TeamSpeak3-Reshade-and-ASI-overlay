@@ -71,6 +71,13 @@ this version — see [compatibility](compatibility.md).
 | `show_when_disconnected` | bool | `true` | Show while not on a server |
 | `show_when_plugin_unavailable` | bool | `true` | Show while TeamSpeak is closed |
 | `auto_profile_by_executable` | bool | `true` | Pick a profile per game |
+| `menu_key` | see below | `INSERT` | Opens the settings window in the `.asi` build only |
+
+`menu_key` is read only by the standalone `.asi` plugin, which has no menu of its own to live
+in; the ReShade add-on opens its settings from ReShade's menu and ignores this. It may be
+`INSERT`, `HOME`, `END`, `DELETE`, `PAUSE`, `SCROLL` or `F1`–`F12`. The list is short on purpose:
+a profile has no business binding a key you drive with. Anything else is reset to `INSERT` with a
+warning in the diagnostics.
 
 ## `appearance`
 
