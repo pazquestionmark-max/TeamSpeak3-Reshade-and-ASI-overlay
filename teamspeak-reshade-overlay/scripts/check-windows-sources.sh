@@ -61,15 +61,13 @@ INCLUDES=(
   -I"$ROOT/third_party/reshade/include"
   -I"$ROOT/third_party/ts3client-pluginsdk/include"
 )
-# The .asi host sees no ReShade SDK at all -- that is the point of it -- but it does need
-# MinHook and its own include folder.
+# The .asi host sees no ReShade SDK at all -- that is the point of it.
 ASI_INCLUDES=(
   -I"$SHIM"
   -I"$ROOT/shared/include"
   -I"$ROOT/reshade-integration/include"
   -I"$ROOT/asi-integration/include"
   -I"$ROOT/third_party/imgui"
-  -I"$ROOT/third_party/minhook/include"
 )
 # The warning set matches what CMake gives these sources on a real build, so a diagnostic that
 # would fail CI fails here first. -Wshadow earns its place in particular: MSVC's C4457 (a local

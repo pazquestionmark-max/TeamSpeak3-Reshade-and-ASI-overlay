@@ -13,14 +13,13 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CXX="${MINGW_CXX:-x86_64-w64-mingw32-g++}"
-CC="${MINGW_CC:-x86_64-w64-mingw32-gcc}"
 RC="${MINGW_RC:-x86_64-w64-mingw32-windres}"
 
-if ! command -v "$CXX" >/dev/null 2>&1 || ! command -v "$CC" >/dev/null 2>&1; then
-  echo "SKIP: MinGW not found (install mingw-w64, or set MINGW_CXX/MINGW_CC)"
+if ! command -v "$CXX" >/dev/null 2>&1; then
+  echo "SKIP: $CXX not found (install mingw-w64, or set MINGW_CXX)"
   exit 0
 fi
-for dep in "$ROOT/third_party/imgui/imgui.h" "$ROOT/third_party/minhook/include/MinHook.h"; do
+for dep in "$ROOT/third_party/imgui/imgui.h"; do
   if [[ ! -f "$dep" ]]; then
     echo "SKIP: missing $dep -- run scripts/fetch-deps.sh first"
     exit 0
@@ -52,18 +51,10 @@ INCLUDES=(
   -I"$ROOT/reshade-integration/include"
   -I"$ROOT/asi-integration/include"
   -I"$ROOT/third_party/imgui"
-  -I"$ROOT/third_party/minhook/include"
 )
 DEFINES=(-DTSRO_VERSION='"1.0.0"' -DTSRO_BUILD_ID='"check"' -DWIN32_LEAN_AND_MEAN -DNOMINMAX
          -DIMGUI_DISABLE_OBSOLETE_FUNCTIONS -DIMGUI_DISABLE_DEMO_WINDOWS)
 
-# Third-party: warnings here are not ours to fix, and MinHook is C.
-THIRD_PARTY_C=(
-  third_party/minhook/src/buffer.c
-  third_party/minhook/src/hook.c
-  third_party/minhook/src/trampoline.c
-  third_party/minhook/src/hde/hde64.c
-)
 THIRD_PARTY_CXX=(
   third_party/imgui/imgui.cpp
   third_party/imgui/imgui_draw.cpp
@@ -120,7 +111,6 @@ compile() {
   done
 }
 
-compile "$CC"  "[c ]" "-w" "${THIRD_PARTY_C[@]}"
 compile "$CXX" "[3p]" "-w -std=c++17" "${THIRD_PARTY_CXX[@]}"
 compile "$CXX" "[  ]" "-std=c++17 -Wall -Wextra -Wshadow -Wconversion -Wsign-conversion" "${OURS[@]}"
 

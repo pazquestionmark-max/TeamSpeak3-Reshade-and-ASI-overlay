@@ -20,12 +20,14 @@ copies of the HUD, one on top of the other.
 ## Ban risk, stated plainly
 
 The `.asi` build has no host to borrow a frame from, so it makes one: it replaces three entries
-in the DXGI swap chain's vtable (`Present`, `Present1`, `ResizeBuffers`) using MinHook, and
-draws in the Present hook.
+in the DXGI swap chain's vtable (`Present`, `Present1`, `ResizeBuffers`) and draws in the
+Present hook.
 
-That is a hook in a game process. A generic code-integrity or anti-cheat scan looks for exactly
-that, and **it has no way to tell this overlay from something that is not an overlay**. Intent
-is not visible to a scanner; a patched vtable is.
+It writes **pointers**, not code. No byte of anybody's executable memory is modified, which is
+both safer around other overlays and less visible to an integrity scan than rewriting a function
+prologue would be. It is still an interception in a game process, and **a scanner has no way to
+tell this overlay from something that is not an overlay**. Intent is not visible to a scanner; a
+replaced vtable entry is.
 
 Concretely:
 
@@ -65,16 +67,20 @@ it looks exactly like "it does nothing". The fix is one line in
 `asi-integration/TeamSpeakOverlay.rc.in` and a new build. A line for a build that does not exist
 costs nothing; a missing one fails in silence, so the list is deliberately generous.
 
-## It must be loaded at startup, not injected
+## Other overlays in the same process
 
-The hooks go in as the very first thing the plugin does, while the process is still starting and
-before the game has presented a frame. That is deliberate: the vendored MinHook writes its patch
-without suspending other threads (see `third_party/minhook/UPSTREAM.md`), which is safe only
-while nothing can be executing the bytes being replaced.
+A game process is a crowded place. ReShade installs itself as a proxy `dxgi.dll`, ENBSeries as a
+proxy `d3d11.dll`, and both sit in front of the functions this plugin replaces. The plugin names
+every one it finds in the log at startup, because a crash in that arrangement is otherwise a
+guessing game:
 
-An ASI loader loads plugins at startup, so this holds. **Injecting `TeamSpeakOverlay.asi` into a
-game that is already running is not supported** and may crash it. There is no injector in this
-project and none is needed.
+    asi: another graphics mod is loaded as dxgi.dll: ...\FiveM.app\plugins\dxgi.dll
+    asi: IDXGISwapChain::Present is dxgi.dll+0x8A120  (...\FiveM.app\plugins\dxgi.dll)
+
+**If one of them is ReShade, use the add-on instead.** It is the same overlay, it hooks nothing
+at all, and it cannot conflict with the thing it is running inside. The plugin says so in the
+log when it detects ReShade's add-on exports. Running both a proxy overlay and this one is
+supported only in the sense that it is not prevented.
 
 ## What it does not do
 
@@ -191,8 +197,7 @@ registry keys are written, and the game's files are not modified. Configuration 
   settings window, icons, font engine and host object the add-on uses — **without**
   `TSRO_HOST_RESHADE`. That one absence is what makes their ImGui calls bind to a real Dear
   ImGui rather than to ReShade's inline forwarders.
-* `cmake -DTSRO_BUILD_ASI=ON`. x64 only: the vendored MinHook carries the 64-bit half of its
-  length-disassembler.
+* `cmake -DTSRO_BUILD_ASI=ON`. x64 only.
 * `scripts/check-asi-link.sh` cross-builds it to a linked DLL with MinGW. That matters more here
   than for the add-on: this target links a real ImGui, so an unresolved symbol is its most
   likely failure and the syntax-only check cannot see one.

@@ -14,24 +14,33 @@
 // is equivalent to reading it from the game's, and needs no pattern scan and no assumption
 // about the game's build.
 //
+// WHAT IS WRITTEN, and what deliberately is not. This replaces a pointer in a vtable. It does
+// not modify a single byte of anybody's code. That distinction is the whole reason it is done
+// this way:
+//
+//   * A game process routinely has other overlays in it -- ReShade proxying dxgi.dll, ENBSeries
+//     proxying d3d11.dll -- and those hook by proxy DLL and by their own inline patches.
+//     Rewriting a function prologue that another overlay has already rewritten, or that it is
+//     about to, is how three overlays end up disagreeing about what the original bytes were.
+//   * An inline patch changes executable memory, which is exactly what a code-integrity scan is
+//     built to notice. A vtable entry is data.
+//   * An aligned pointer-sized store is atomic on x64, so a thread calling through the slot at
+//     that moment sees either the old function or the new one, never half of each. That removes
+//     the need to suspend threads while patching, which is what the vendored MinHook could not
+//     do, and with it the requirement that hooks be installed before the first frame.
+//
 // Stated plainly, because it matters to the people installing this: patching a vtable is
 // exactly what a code-integrity check looks for, and an anti-cheat that sees it has no way to
 // tell this overlay from something that is not an overlay. FiveM servers in "pure mode" block
 // .asi plugins outright. The ReShade add-on is the lower-risk of the two front ends, and this
 // one exists because the overlay should not require ReShade -- not because hooking is free.
 // See docs/asi-plugin.md.
-//
-// WHEN the hooks go in is load-bearing, not incidental. The vendored MinHook has upstream's
-// thread-freeze deleted (third_party/minhook/UPSTREAM.md says why), so it writes the patch
-// without suspending anything. That is safe only while no thread can be executing the bytes
-// being replaced -- which holds when an ASI loader loads this plugin at process start, before
-// the game has created a device or presented a frame, and does not hold if this DLL is injected
-// into a game that is already running. So: hooks first, before the profile and the IPC client,
-// and injecting into a running process is not supported.
+
 #include <windows.h>
 
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <string>
 #include <system_error>
@@ -39,8 +48,6 @@
 #include <d3d11.h>
 #include <dxgi.h>
 #include <dxgi1_2.h>
-
-#include <MinHook.h>
 
 #include "d3d11_overlay.hpp"
 #include "overlay_host.hpp"
@@ -51,6 +58,65 @@ namespace {
 
 constexpr char kComponent[] = "asi";
 
+/// One replaced vtable entry, remembered so it can be put back.
+struct VTableSlot {
+    void** slot = nullptr;
+    void* original = nullptr;
+
+    /// Writes `detour` into the slot and hands back what was there.
+    bool install(void** vtable, std::size_t index, void* detour) {
+        if (vtable == nullptr) return false;
+        void** target = vtable + index;
+        DWORD previous = 0;
+        if (!VirtualProtect(target, sizeof(void*), PAGE_READWRITE, &previous)) return false;
+        original = *target;
+        InterlockedExchangePointer(reinterpret_cast<void* volatile*>(target), detour);
+        DWORD ignored = 0;
+        VirtualProtect(target, sizeof(void*), previous, &ignored);
+        slot = target;
+        return true;
+    }
+
+    /// Only puts the original back if the slot still holds our detour. Another overlay may have
+    /// hooked the same entry after us, and stamping over its pointer would break it.
+    void remove(void* detour) {
+        if (slot == nullptr || original == nullptr) return;
+        DWORD previous = 0;
+        if (VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &previous)) {
+            if (*slot == detour) *slot = original;
+            DWORD ignored = 0;
+            VirtualProtect(slot, sizeof(void*), previous, &ignored);
+        }
+        slot = nullptr;
+        original = nullptr;
+    }
+};
+
+/// Which module a function belongs to, for the log. When the overlay is one of several things
+/// in the process with an interest in Present, knowing whose Present we took matters -- and it
+/// is the first thing anyone would want from a crash report.
+std::string describe(void* address) {
+    HMODULE module = nullptr;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCSTR>(address), &module) &&
+        module != nullptr) {
+        char path[MAX_PATH] = {};
+        if (GetModuleFileNameA(module, path, static_cast<DWORD>(sizeof(path))) > 0) {
+            std::string full(path);
+            const std::size_t cut = full.find_last_of("\\/");
+            const std::string name = cut == std::string::npos ? full : full.substr(cut + 1);
+            const std::uintptr_t offset = reinterpret_cast<std::uintptr_t>(address) -
+                                          reinterpret_cast<std::uintptr_t>(module);
+            char buffer[64] = {};
+            std::snprintf(buffer, sizeof(buffer), "+0x%llX",
+                          static_cast<unsigned long long>(offset));
+            return name + buffer + "  (" + full + ")";
+        }
+    }
+    return "an address in no loaded module";
+}
+
 using PresentFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
 using Present1Fn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain1*, UINT, UINT,
                                                const DXGI_PRESENT_PARAMETERS*);
@@ -60,6 +126,9 @@ using ResizeBuffersFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT,
 PresentFn g_present = nullptr;
 Present1Fn g_present1 = nullptr;
 ResizeBuffersFn g_resize_buffers = nullptr;
+VTableSlot g_present_slot;
+VTableSlot g_present1_slot;
+VTableSlot g_resize_slot;
 
 tsro::overlay::OverlayHost* g_host = nullptr;
 HMODULE g_module = nullptr;
@@ -182,61 +251,54 @@ bool install_hooks() {
     }
 
     // One vtable is shared by every IDXGISwapChain in the process, so the entries read from
-    // this throwaway are the same functions the game's swap chain will call.
+    // this throwaway are the same ones the game's swap chain will call through.
     void** vtable = *reinterpret_cast<void***>(swap_chain);
-    void* present = vtable[8];
-    void* resize_buffers = vtable[13];
 
     // Present1 lives on IDXGISwapChain1. Games using the flip model call it instead of Present,
-    // so it is hooked too when the runtime has it; both hooks land in the same draw path and
-    // only one of them is called per frame.
-    void* present1 = nullptr;
+    // so it is taken too when the runtime has it; both land in the same draw path and only one
+    // of them is called per frame.
+    void** vtable1 = nullptr;
     IDXGISwapChain1* swap_chain1 = nullptr;
     if (SUCCEEDED(swap_chain->QueryInterface(__uuidof(IDXGISwapChain1),
                                              reinterpret_cast<void**>(&swap_chain1))) &&
         swap_chain1 != nullptr) {
-        void** vtable1 = *reinterpret_cast<void***>(swap_chain1);
-        present1 = vtable1[22];
+        vtable1 = *reinterpret_cast<void***>(swap_chain1);
         swap_chain1->Release();
     }
+
+    // Say whose functions these are before touching them. With ReShade proxying dxgi.dll and
+    // ENBSeries proxying d3d11.dll, "Present" is not necessarily Microsoft's.
+    TSRO_INFO(kComponent, "IDXGISwapChain::Present is " + describe(vtable[8]));
+    TSRO_INFO(kComponent, "IDXGISwapChain::ResizeBuffers is " + describe(vtable[13]));
 
     swap_chain->Release();
     if (context != nullptr) context->Release();
     if (device != nullptr) device->Release();
 
-    if (MH_Initialize() != MH_OK) {
-        TSRO_ERROR(kComponent, "MinHook could not be initialised");
+    if (!g_present_slot.install(vtable, 8, reinterpret_cast<void*>(&hooked_present)) ||
+        !g_resize_slot.install(vtable, 13, reinterpret_cast<void*>(&hooked_resize_buffers))) {
+        TSRO_ERROR(kComponent, "the DXGI vtable entries could not be replaced");
+        g_present_slot.remove(reinterpret_cast<void*>(&hooked_present));
+        g_resize_slot.remove(reinterpret_cast<void*>(&hooked_resize_buffers));
         return false;
     }
+    g_present = reinterpret_cast<PresentFn>(g_present_slot.original);
+    g_resize_buffers = reinterpret_cast<ResizeBuffersFn>(g_resize_slot.original);
 
-    bool ok = MH_CreateHook(present, reinterpret_cast<void*>(&hooked_present),
-                            reinterpret_cast<void**>(&g_present)) == MH_OK;
-    ok = ok && MH_CreateHook(resize_buffers, reinterpret_cast<void*>(&hooked_resize_buffers),
-                             reinterpret_cast<void**>(&g_resize_buffers)) == MH_OK;
-    if (!ok) {
-        TSRO_ERROR(kComponent, "the DXGI Present/ResizeBuffers hooks could not be created");
-        MH_Uninitialize();
-        return false;
-    }
-    if (present1 != nullptr && present1 != present) {
-        // Not fatal: a game that never calls Present1 loses nothing, and one that does simply
-        // shows no overlay rather than crashing.
-        if (MH_CreateHook(present1, reinterpret_cast<void*>(&hooked_present1),
-                          reinterpret_cast<void**>(&g_present1)) != MH_OK) {
-            TSRO_WARN(kComponent, "the Present1 hook could not be created; the overlay will not "
-                                  "draw in games that use the flip presentation model");
-            g_present1 = nullptr;
+    if (vtable1 != nullptr && vtable1[22] != vtable[8]) {
+        TSRO_INFO(kComponent, "IDXGISwapChain1::Present1 is " + describe(vtable1[22]));
+        if (g_present1_slot.install(vtable1, 22, reinterpret_cast<void*>(&hooked_present1))) {
+            g_present1 = reinterpret_cast<Present1Fn>(g_present1_slot.original);
+        } else {
+            // Not fatal: a game that never calls Present1 loses nothing, and one that does
+            // shows no overlay rather than crashing.
+            TSRO_WARN(kComponent, "the Present1 entry could not be replaced; the overlay will "
+                                  "not draw in games that use the flip presentation model");
         }
     }
 
-    if (MH_EnableHook(MH_ALL_HOOKS) != MH_OK) {
-        TSRO_ERROR(kComponent, "the DXGI hooks could not be enabled");
-        MH_Uninitialize();
-        return false;
-    }
-
     g_hooks_installed.store(true, std::memory_order_release);
-    TSRO_INFO(kComponent, "DXGI hooks installed");
+    TSRO_INFO(kComponent, "DXGI vtable entries replaced (no code was modified)");
     return true;
 }
 
@@ -256,18 +318,51 @@ void open_log_early() {
     tsro::Logger::instance().configure(tsro::LogLevel::Info, true, root + "/tsro-overlay.log", 1024);
 }
 
-/// Everything that must not happen on the loader lock: MinHook suspends threads, and creating a
-/// D3D device loads more DLLs. Both deadlock if attempted from DllMain.
+/// Everything that must not happen on the loader lock: creating a D3D device loads more DLLs,
+/// which deadlocks if attempted from DllMain.
+/// Other overlays in the same process, named in the log before anything else happens.
+///
+/// A game process is a crowded place. ReShade installs itself as a proxy dxgi.dll and ENBSeries
+/// as a proxy d3d11.dll, both of which sit in front of the functions this plugin replaces, and
+/// a crash in that arrangement is otherwise a guessing game. When ReShade is one of them the
+/// ReShade add-on is the better answer anyway -- same overlay, nothing hooked -- so say so.
+void report_graphics_mods() {
+    static const char* kNames[] = {"dxgi.dll", "d3d11.dll", "d3d12.dll", "opengl32.dll"};
+    bool reshade = false;
+    for (const char* name : kNames) {
+        const HMODULE module = GetModuleHandleA(name);
+        if (module == nullptr) continue;
+        char path[MAX_PATH] = {};
+        if (GetModuleFileNameA(module, path, static_cast<DWORD>(sizeof(path))) == 0) continue;
+        std::string full(path);
+        // A copy loaded from anywhere but System32 is a proxy standing in for the real one.
+        if (full.find("\\Windows\\System32\\") != std::string::npos ||
+            full.find("\\windows\\system32\\") != std::string::npos) {
+            continue;
+        }
+        TSRO_WARN(kComponent, std::string("another graphics mod is loaded as ") + name + ": " + full);
+        if (GetProcAddress(module, "ReShadeRegisterAddon") != nullptr ||
+            GetProcAddress(module, "ReShadeRegisterEvent") != nullptr) {
+            reshade = true;
+        }
+    }
+    if (reshade) {
+        TSRO_WARN(kComponent,
+                  "ReShade is already running in this process, and it supports add-ons. The "
+                  "ReShade add-on build of this overlay hooks nothing at all and is the better "
+                  "choice here: install TeamSpeakOverlay.addon64 beside ReShade and remove this "
+                  ".asi. See docs/asi-plugin.md.");
+    }
+}
+
 DWORD WINAPI bootstrap(LPVOID) {
     open_log_early();
     TSRO_INFO(kComponent, std::string("TeamSpeak Overlay .asi ") + TSRO_VERSION + " (build " +
                               TSRO_BUILD_ID + ") loaded; attaching to the renderer");
-    // Hooks first and nothing before them: see the note at the top of this file. Reading a
-    // profile off disk takes milliseconds, and spending those milliseconds before the patch
-    // goes in is spending them on the wrong side of the one window where the patch is safe.
-    //
-    // Until set_host below, the hooks pass every frame straight through -- on_present returns
-    // immediately with no host -- so there is no window where a half-built overlay draws.
+    report_graphics_mods();
+    // Hooks first, so a frame is never missed while the profile is read off disk. Until
+    // set_host below they pass every frame straight through -- on_present returns immediately
+    // with no host -- so there is no window in which a half-built overlay draws.
     if (!install_hooks()) {
         TSRO_ERROR(kComponent, "the overlay could not attach to the game's renderer");
         return 0;
@@ -298,8 +393,9 @@ void shutdown(bool process_exiting) {
 
     tsro::asi::overlay_instance().set_host(nullptr);
     if (g_hooks_installed.exchange(false, std::memory_order_acq_rel)) {
-        MH_DisableHook(MH_ALL_HOOKS);
-        MH_Uninitialize();
+        g_present_slot.remove(reinterpret_cast<void*>(&hooked_present));
+        g_present1_slot.remove(reinterpret_cast<void*>(&hooked_present1));
+        g_resize_slot.remove(reinterpret_cast<void*>(&hooked_resize_buffers));
     }
     // The host releases its font textures through the sink, so it has to stop before the sink's
     // device does.

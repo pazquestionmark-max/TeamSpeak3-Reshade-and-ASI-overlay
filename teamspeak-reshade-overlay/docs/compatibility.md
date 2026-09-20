@@ -31,8 +31,9 @@ binaries are not yet proven on hardware. Do not treat the table below as field-t
 | Dear ImGui | **v1.91.8-docking** (`IMGUI_VERSION_NUM` 19180) | Must be the docking branch: ReShade's add-on ImGui function table declares `DockSpace`, `ImGuiDockNodeFlags` and `ImGuiWindowClass`, which exist only there. CMake checks both the version and the branch and fails with an explanation. |
 | Graphics APIs (ReShade add-on) | D3D9, D3D10, D3D11, D3D12, OpenGL, Vulkan | We draw through ReShade's ImGui layer, so whichever backends your ReShade build supports, the overlay supports. We add no API-specific code. |
 | Graphics APIs (`.asi` plugin) | **D3D11 only** | Without ReShade there is no API-independent layer to draw through, so this front end carries its own Dear ImGui D3D11 backend. It hooks `IDXGISwapChain::Present`/`Present1`/`ResizeBuffers`; a swap chain that will not give it an `ID3D11Device` is left untouched and the overlay simply does not draw. D3D12 and Vulkan need the add-on. |
-| `.asi` architecture | **x64 only** | The vendored MinHook carries the 64-bit half of its length-disassembler. A 32-bit game uses the add-on. |
-| `.asi` loading | at process start, via an ASI loader | Not injectable into a running game: the patch is written without suspending threads, which is safe only before the first frame. See [`asi-plugin.md`](asi-plugin.md). |
+| `.asi` architecture | **x64 only** | A 32-bit game uses the add-on. |
+| `.asi` loading | at process start, via an ASI loader | Replaces vtable pointers, never code. An aligned pointer store is atomic, so no thread has to be suspended to do it. |
+| `.asi` alongside ReShade or ENB | **use the add-on instead** | Both proxy a graphics DLL and sit in front of the same functions. The plugin logs every graphics mod it finds and says so when it sees ReShade. |
 | Display modes | Exclusive fullscreen, borderless, windowed | We render inside the game's own present chain, so all three behave identically. |
 | VR | **not supported** | ReShade does not invoke `reshade_overlay` for VR effect runtimes. Documented in ReShade's own header. |
 

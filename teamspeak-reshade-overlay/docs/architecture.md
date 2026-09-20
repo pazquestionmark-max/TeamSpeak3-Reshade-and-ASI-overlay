@@ -117,8 +117,8 @@ Each front end supplies only two things:
 
 The cost of the second front end is the part that cannot be shared: getting a frame at all. It
 replaces three entries in the DXGI swap chain's vtable (`Present`, `Present1`, `ResizeBuffers`)
-with MinHook, finding the vtable by creating a throwaway device of its own rather than by
-scanning the game's code. That is a hook in a game process, with everything that implies —
+by writing pointers into the swap chain's vtable -- never into anybody's code -- and finds that
+vtable by creating a throwaway device of its own rather than by scanning the game. That is a hook in a game process, with everything that implies —
 [`asi-plugin.md`](asi-plugin.md) states the risk plainly rather than burying it. It is also why
 ReShade remains the recommended host: ReShade is widely allowlisted, and a home-grown hook is
 not.

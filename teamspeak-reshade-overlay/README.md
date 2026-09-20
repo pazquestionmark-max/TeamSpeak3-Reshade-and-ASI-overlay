@@ -124,11 +124,6 @@ cd tools/tsro-cli && npx tsx src/cli.ts mock --scenario chatter
 Plugin SDK headers. None of them are redistributed here. ReShade and ImGui must be a matched
 pair — including ImGui's **docking** branch — and CMake fails with an explanation if they are not.
 
-MinHook is the one exception: it is vendored in `third_party/minhook/`, because the `.asi` build
-links it into the shipped binary and a source archive should build on its own.
-[`third_party/minhook/UPSTREAM.md`](third_party/minhook/UPSTREAM.md) records the exact upstream
-commit, the single file that differs from it, and what that difference requires of callers. Its
-BSD-2 notice is in [`LICENSE`](LICENSE).
 
 ## Documentation
 

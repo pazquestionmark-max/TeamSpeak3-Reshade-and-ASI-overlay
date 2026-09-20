@@ -71,7 +71,6 @@ echo "Dependencies are in $VENDOR:"
 echo "  ReShade SDK       $RESHADE_TAG"
 echo "  Dear ImGui        $IMGUI_TAG"
 echo "  TeamSpeak SDK     ${TS3_SDK_COMMIT:-$TS3_SDK_REF}"
-echo "  MinHook           vendored in third_party/minhook (not fetched)"
 echo
 echo "Verify the ImGui pairing before building the add-on:"
 echo "  grep -m1 'IMGUI_VERSION_NUM !=' $VENDOR/reshade/include/reshade_overlay.hpp"

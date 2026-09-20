@@ -25,10 +25,9 @@ endif()
 
 # These two live in the game process and the voice client; both are built for size and speed
 # with no runtime the user must install separately.
-# Scoped to C++ with a generator expression rather than set bare. The .asi build compiles
-# MinHook, which is C, and several of these (/EHsc, /Zc:__cplusplus) mean nothing to a C
-# compiler -- passing them anyway earns a command-line warning, which /WX then turns into a
-# failed build for a file none of it applies to.
+# Scoped to C++ with a generator expression rather than set bare, so that a C source added to
+# any target later is not handed /EHsc or /Zc:__cplusplus -- which mean nothing to a C compiler
+# and earn a command-line warning that /WX would turn into a failed build.
 if(MSVC)
   add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/W4>
                       $<$<COMPILE_LANGUAGE:CXX>:/permissive->
