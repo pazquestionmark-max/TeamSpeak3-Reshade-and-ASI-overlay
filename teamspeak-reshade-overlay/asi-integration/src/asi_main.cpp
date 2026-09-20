@@ -15,6 +15,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <cctype>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -68,11 +69,12 @@ void report_graphics_mods() {
         if (module == nullptr) continue;
         char path[MAX_PATH] = {};
         if (GetModuleFileNameA(module, path, static_cast<DWORD>(sizeof(path))) == 0) continue;
+        // Case-insensitively: Windows hands this back as SYSTEM32 as often as System32, and
+        // reporting the real dxgi.dll as "another graphics mod" is just noise.
+        std::string lower(path);
+        for (char& c : lower) c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
+        if (lower.find("\\windows\\system32\\") != std::string::npos) continue;
         const std::string full(path);
-        if (full.find("\\Windows\\System32\\") != std::string::npos ||
-            full.find("\\windows\\system32\\") != std::string::npos) {
-            continue;
-        }
         TSRO_INFO(kComponent, std::string("another graphics mod is loaded as ") + name + ": " + full);
         if (GetProcAddress(module, "ReShadeRegisterAddon") != nullptr ||
             GetProcAddress(module, "ReShadeRegisterEvent") != nullptr) {

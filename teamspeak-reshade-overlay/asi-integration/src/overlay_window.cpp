@@ -141,7 +141,29 @@ using D3D11CreateDeviceFn = HRESULT(WINAPI*)(IDXGIAdapter*, D3D_DRIVER_TYPE, HMO
                                              const D3D_FEATURE_LEVEL*, UINT, UINT, ID3D11Device**,
                                              D3D_FEATURE_LEVEL*, ID3D11DeviceContext**);
 
+bool create_device_unguarded(HWND hwnd, UINT width, UINT height);
+
+/// Graphics setup, behind a structured-exception guard.
+///
+/// Everything below runs inside a process that already has other people's graphics code in it,
+/// and a fault in theirs is indistinguishable from a fault in ours as far as the game is
+/// concerned -- it dies either way. An overlay is not worth a crash, so if this faults the
+/// overlay switches itself off and the game carries on without it.
 bool create_device(HWND hwnd, UINT width, UINT height) {
+#if defined(_MSC_VER)
+    __try {
+        return create_device_unguarded(hwnd, width, height);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        TSRO_ERROR(kComponent, "the graphics setup for the overlay window faulted; the overlay "
+                               "is disabled for this session and the game is unaffected");
+        return false;
+    }
+#else
+    return create_device_unguarded(hwnd, width, height);
+#endif
+}
+
+bool create_device_unguarded(HWND hwnd, UINT width, UINT height) {
     const HMODULE real_d3d11 = system_library("d3d11.dll");
     const HMODULE real_dxgi = system_library("dxgi.dll");
     if (real_d3d11 == nullptr || real_dxgi == nullptr) {
@@ -164,7 +186,16 @@ bool create_device(HWND hwnd, UINT width, UINT height) {
     IDXGIDevice* dxgi = nullptr;
     IDXGIFactory2* factory = nullptr;
     if (SUCCEEDED(hr)) hr = g_device->QueryInterface(IID_PPV_ARGS(&dxgi));
-    if (SUCCEEDED(hr)) hr = create_factory(0, IID_PPV_ARGS(&factory));
+    // The factory comes from the adapter this device was made on, which is the documented way
+    // to get one for a swap chain and keeps everything on a single consistent object graph.
+    // Creating an independent factory instead is what DXGI faulted inside (dxgi.dll+0xA816).
+    IDXGIAdapter* adapter = nullptr;
+    if (SUCCEEDED(hr)) hr = dxgi->GetAdapter(&adapter);
+    if (SUCCEEDED(hr)) hr = adapter->GetParent(IID_PPV_ARGS(&factory));
+    if (adapter != nullptr) adapter->Release();
+    if (FAILED(hr) && create_factory != nullptr) {
+        hr = create_factory(0, IID_PPV_ARGS(&factory));
+    }
     if (SUCCEEDED(hr)) {
         // A composition swap chain rather than an hwnd one: it is what lets the surface carry
         // real per-pixel alpha, so the game shows through everywhere we have not drawn instead
