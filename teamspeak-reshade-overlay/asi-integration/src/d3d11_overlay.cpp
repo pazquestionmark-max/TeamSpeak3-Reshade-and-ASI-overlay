@@ -93,6 +93,21 @@ LRESULT CALLBACK D3D11Overlay::wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
 LRESULT D3D11Overlay::handle_message(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     WNDPROC original = original_wnd_proc_;
 
+    // Feeding ImGui from the window procedure is only safe while the message pump and the
+    // renderer are the same thread, which is the usual arrangement but not a guarantee. Say
+    // which it is, once, rather than leaving a race to be guessed at from a crash dump.
+    if (!logged_threads_ && initialised_) {
+        logged_threads_ = true;
+        const DWORD here = GetCurrentThreadId();
+        if (here == render_thread_) {
+            TSRO_INFO(kComponent, "window messages arrive on the render thread");
+        } else {
+            TSRO_WARN(kComponent, "window messages arrive on thread " + std::to_string(here) +
+                                      " but frames are drawn on " + std::to_string(render_thread_) +
+                                      "; input is being fed to Dear ImGui across threads");
+        }
+    }
+
     // The menu key is deliberately NOT handled here. It is polled once per frame instead, which
     // works whether or not this hook went in and whichever window ends up with focus -- and
     // doing it in both places would toggle twice per press and net out to nothing.
@@ -167,6 +182,13 @@ bool D3D11Overlay::rebind(IDXGISwapChain* swap_chain) {
     if (device != device_) {
         // A different device means the ImGui D3D11 backend and every font texture belong to
         // something that is going away. Rebuild both.
+        //
+        // The font engine must be told first. It caches an ImTextureID per atlas and only drops
+        // them when the sink pointer changes -- which it does not here, the sink is a member --
+        // so releasing the textures underneath it would leave it drawing with freed shader
+        // resource views. release_font_textures() destroys them through the sink and clears the
+        // atlases, so the next frame rebakes.
+        if (host_ != nullptr) host_->release_font_textures();
         sink_.release();
         sink_.set_device(nullptr);
         if (initialised_) ImGui_ImplDX11_Shutdown();
@@ -183,6 +205,17 @@ bool D3D11Overlay::rebind(IDXGISwapChain* swap_chain) {
         device->Release();                    // already held
     }
 
+    // The Win32 backend holds the window it was initialised with, and uses it for mouse
+    // coordinates, mouse capture and keyboard focus. Moving our own hook is not enough -- the
+    // backend has to be pointed at the new window too, or every click lands in the coordinate
+    // space of a window the player cannot see.
+    if (initialised_ && desc.OutputWindow != window_) {
+        ImGui_ImplWin32_Shutdown();
+        if (!ImGui_ImplWin32_Init(desc.OutputWindow)) {
+            TSRO_ERROR(kComponent, "the Win32 ImGui backend could not be moved to the new window");
+            return false;
+        }
+    }
     hook_window(desc.OutputWindow);
     // Start the hint again on the swap chain the player is actually looking at. On FiveM the
     // first one is the loading screen, and a hint that spent its fifteen seconds there was
@@ -248,6 +281,7 @@ bool D3D11Overlay::ensure_initialised(IDXGISwapChain* swap_chain) {
     hook_window(desc.OutputWindow);
 
     sink_.set_device(device_);
+    render_thread_ = GetCurrentThreadId();
     initialised_ = true;
     TSRO_INFO(kComponent, "Dear ImGui attached: " + std::to_string(desc.BufferDesc.Width) + "x" +
                               std::to_string(desc.BufferDesc.Height) + ", " +
@@ -264,6 +298,10 @@ bool D3D11Overlay::ensure_render_target(IDXGISwapChain* swap_chain) {
         back_buffer == nullptr) {
         return false;
     }
+    D3D11_TEXTURE2D_DESC bb = {};
+    back_buffer->GetDesc(&bb);
+    back_buffer_width_ = bb.Width;
+    back_buffer_height_ = bb.Height;
     const HRESULT hr = device_->CreateRenderTargetView(back_buffer, nullptr, &render_target_);
     back_buffer->Release();
     return SUCCEEDED(hr) && render_target_ != nullptr;
@@ -367,6 +405,16 @@ void D3D11Overlay::on_present(IDXGISwapChain* swap_chain) {
 
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
+
+    // ImGui_ImplWin32_NewFrame has just set DisplaySize from GetClientRect of whichever window
+    // the backend was initialised with. Override it with the back buffer's real size: that is
+    // what we are drawing into, and the two disagree whenever the game presents from a window
+    // other than the one the backend holds. FiveM does exactly that -- a 1017x336 loading
+    // screen first, then the game -- and the result was a frame rendered at loading-screen size
+    // into the corner of a 2544x1402 back buffer, which looks precisely like "nothing appears".
+    ImGui::GetIO().DisplaySize =
+        ImVec2(static_cast<float>(back_buffer_width_), static_cast<float>(back_buffer_height_));
+
     ImGui::NewFrame();
 
     ImGuiIO& io = ImGui::GetIO();
@@ -388,10 +436,21 @@ void D3D11Overlay::on_present(IDXGISwapChain* swap_chain) {
     }
 
     ImGui::Render();
+
+    // imgui_impl_dx11 saves and restores a great deal around RenderDrawData -- but not the
+    // output-merger render targets, which are not in its BACKUP_DX11_STATE. Binding ours and
+    // walking away leaves the game's immediate context pointing at our back-buffer view with no
+    // depth-stencil, after Present has returned. Save and restore them ourselves.
+    ID3D11RenderTargetView* saved_rtv = nullptr;
+    ID3D11DepthStencilView* saved_dsv = nullptr;
+    context_->OMGetRenderTargets(1, &saved_rtv, &saved_dsv);
+
     context_->OMSetRenderTargets(1, &render_target_, nullptr);
-    // imgui_impl_dx11 saves and restores the whole pipeline state around this call, so the
-    // game's next draw sees exactly what it left behind.
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+    context_->OMSetRenderTargets(1, &saved_rtv, saved_dsv);
+    if (saved_rtv != nullptr) saved_rtv->Release();
+    if (saved_dsv != nullptr) saved_dsv->Release();
 }
 
 void D3D11Overlay::shutdown() {

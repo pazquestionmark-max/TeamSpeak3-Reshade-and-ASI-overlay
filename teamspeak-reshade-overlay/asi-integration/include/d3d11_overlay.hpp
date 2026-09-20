@@ -75,6 +75,12 @@ private:
     ID3D11Device* device_ = nullptr;
     ID3D11DeviceContext* context_ = nullptr;
     ID3D11RenderTargetView* render_target_ = nullptr;
+    /// The back buffer's own size. The frame is sized from this and never from the window:
+    /// which window ImGui's Win32 backend is holding is a separate question, and getting it
+    /// wrong should cost correct mouse coordinates, not a frame rendered at the wrong size
+    /// into the corner of the screen.
+    UINT back_buffer_width_ = 0;
+    UINT back_buffer_height_ = 0;
     HWND window_ = nullptr;
     WNDPROC original_wnd_proc_ = nullptr;
 
@@ -82,6 +88,9 @@ private:
     std::string menu_key_name_ = "INSERT";
     bool menu_open_ = false;
     bool menu_key_was_down_ = false;
+
+    DWORD render_thread_ = 0;
+    bool logged_threads_ = false;
 
     std::int64_t first_frame_ms_ = 0;
     bool hint_done_ = false;
