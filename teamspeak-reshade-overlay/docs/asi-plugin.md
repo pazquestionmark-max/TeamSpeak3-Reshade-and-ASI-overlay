@@ -40,6 +40,31 @@ Concretely:
 This front end exists so that the overlay does not *require* ReShade. It is not a claim that
 hooking is safe. You are choosing to run it.
 
+## Game builds (FiveM)
+
+From build 2189 onward, FiveM's ASI loader refuses any plugin that does not declare support for
+the build being run. It looks for a resource inside the DLL:
+
+    FindResource(module, L"FX_ASI_BUILD", MAKEINTRESOURCE(GetGameBuild()))
+
+`TeamSpeakOverlay.asi` declares the whole known ladder — 1604 through 3889 — so it loads on any
+current build and on the older ones servers still pin.
+
+The declaration is about the *loader*, not the renderer. The overlay hooks DXGI and nothing
+game-specific, so it does not care which build of GTA V it is inside; the list exists only
+because FiveM asks for it.
+
+**When FiveM adds a build we have not claimed**, the loader prints:
+
+> Unable to load ...\TeamSpeakOverlay.asi - this ASI plugin does not claim to support game build
+> N. If you have access to its source code, add `FX_ASI_BUILD N BEGIN "\0" END` to the .rc file
+> when building this plugin. If not, contact its maintainer.
+
+That refusal happens before `DllMain`, so the plugin never runs and writes nothing to the log —
+it looks exactly like "it does nothing". The fix is one line in
+`asi-integration/TeamSpeakOverlay.rc.in` and a new build. A line for a build that does not exist
+costs nothing; a missing one fails in silence, so the list is deliberately generous.
+
 ## It must be loaded at startup, not injected
 
 The hooks go in as the very first thing the plugin does, while the process is still starting and
@@ -110,8 +135,13 @@ never overwritten.
 Work through [troubleshooting.md](troubleshooting.md) first — most symptoms are the same for
 both front ends. These are the ones specific to this build:
 
-**No overlay at all, and no log.** The `.asi` was not loaded. Check it is in the right folder
-and that the loader is present. On FiveM, a pure-mode server is the usual answer.
+**No overlay at all, and no log.** The `.asi` was not loaded, so nothing of ours ever ran. Check
+FiveM's own console first — it says which of these it is:
+
+* *"does not claim to support game build N"* — FiveM moved to a build this release does not
+  declare. See [Game builds](#game-builds-fivem) above; it needs a new build of the plugin.
+* Nothing at all about the file — it is in the wrong folder, or the loader is not present.
+* On a pure-mode server, `.asi` plugins are blocked outright. That is the server's decision.
 
 **A log, but nothing on screen.** Look in `%APPDATA%\TeamSpeakReShadeOverlay\tsro-overlay.log`
 for `asi`:

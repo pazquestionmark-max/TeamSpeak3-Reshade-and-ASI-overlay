@@ -121,3 +121,19 @@ is not part of the shipped overlay.
 Include: Windows version, TeamSpeak version, ReShade version, the game and its graphics API, both
 log files, and a screenshot of the Diagnostics tab. Check first that the log contains nothing you
 would not want to share.
+
+## "This ASI plugin does not claim to support game build N"
+
+FiveM only, and only for the `.asi` front end. Its loader refuses any plugin that does not
+declare the game build being run, and the refusal happens before the plugin's code executes — so
+there is no overlay log to check, and it looks like the plugin simply does nothing.
+
+`TeamSpeakOverlay.asi` declares every build from 1604 to 3889. Seeing this message means FiveM
+has moved past that list, which happens when the game updates.
+
+There is no setting that fixes it and no file to edit on your machine: the declaration lives
+inside the DLL. It needs a new build of the plugin with the new number added to
+`asi-integration/TeamSpeakOverlay.rc.in`. Open an issue with the build number from the message.
+
+In the meantime the ReShade add-on is unaffected — it is not an ASI plugin and FiveM does not
+gate it.

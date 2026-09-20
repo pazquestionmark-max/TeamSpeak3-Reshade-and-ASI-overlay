@@ -69,9 +69,22 @@ else()
   target_compile_options(tsro_imgui PRIVATE -w)
 endif()
 
+# FiveM's loader refuses an .asi that does not declare the game build it is running on, and the
+# refusal happens before DllMain, so the plugin cannot report it -- it just never loads. The
+# declaration is a resource, so the .rc is not optional decoration here, it is load-bearing.
+# Generated so its version block tracks project(VERSION) on its own.
+set(TSRO_ASI_RC "")
+if(WIN32)
+  enable_language(RC)
+  configure_file(TeamSpeakOverlay.rc.in
+                 "${CMAKE_CURRENT_BINARY_DIR}/TeamSpeakOverlay.rc" @ONLY)
+  set(TSRO_ASI_RC "${CMAKE_CURRENT_BINARY_DIR}/TeamSpeakOverlay.rc")
+endif()
+
 add_library(tsro_asi SHARED
   src/asi_main.cpp
   src/d3d11_overlay.cpp
+  ${TSRO_ASI_RC}
   ${TSRO_OVERLAY_SOURCES}
 )
 

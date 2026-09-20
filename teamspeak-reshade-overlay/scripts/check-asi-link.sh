@@ -14,6 +14,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CXX="${MINGW_CXX:-x86_64-w64-mingw32-g++}"
 CC="${MINGW_CC:-x86_64-w64-mingw32-gcc}"
+RC="${MINGW_RC:-x86_64-w64-mingw32-windres}"
 
 if ! command -v "$CXX" >/dev/null 2>&1 || ! command -v "$CC" >/dev/null 2>&1; then
   echo "SKIP: MinGW not found (install mingw-w64, or set MINGW_CXX/MINGW_CC)"
@@ -122,6 +123,31 @@ compile() {
 compile "$CC"  "[c ]" "-w" "${THIRD_PARTY_C[@]}"
 compile "$CXX" "[3p]" "-w -std=c++17" "${THIRD_PARTY_CXX[@]}"
 compile "$CXX" "[  ]" "-std=c++17 -Wall -Wextra -Wshadow -Wconversion -Wsign-conversion" "${OURS[@]}"
+
+# The resource script. This is the part FiveM actually gates on: without FX_ASI_BUILD entries its
+# loader refuses the plugin before DllMain runs, so a typo here is invisible at runtime -- there
+# is no log of ours to read. CMake generates the .rc from the .in; do the same substitution here.
+printf '%-52s ' "[rc] TeamSpeakOverlay.rc"
+if command -v "$RC" >/dev/null 2>&1; then
+  VERSION="$(sed -n 's/^project(.*VERSION \([0-9.]*\).*/\1/p' "$ROOT/CMakeLists.txt" | head -1)"
+  VERSION="${VERSION:-1.0.0}"
+  IFS=. read -r V_MAJOR V_MINOR V_PATCH <<< "$VERSION"
+  sed -e "s/@PROJECT_VERSION_MAJOR@/${V_MAJOR}/g" \
+      -e "s/@PROJECT_VERSION_MINOR@/${V_MINOR}/g" \
+      -e "s/@PROJECT_VERSION_PATCH@/${V_PATCH}/g" \
+      -e "s/@PROJECT_VERSION@/${VERSION}/g" \
+      "$ROOT/asi-integration/TeamSpeakOverlay.rc.in" > "$OUT/TeamSpeakOverlay.rc"
+  if output="$("$RC" -O coff -o "$OUT/zz_resources.o" "$OUT/TeamSpeakOverlay.rc" 2>&1)"; then
+    echo "OK ($(grep -c '^FX_ASI_BUILD' "$OUT/TeamSpeakOverlay.rc") game builds declared)"
+  else
+    echo "FAIL"
+    echo "$output" | head -20
+    status=1
+  fi
+else
+  echo "SKIP ($RC not found)"
+fi
+
 [[ $status -eq 0 ]] || exit 1
 
 printf '%-52s ' "link TeamSpeakOverlay.asi"

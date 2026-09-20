@@ -1,0 +1,80 @@
+// Resources for the standalone .asi. Generated from TeamSpeakOverlay.rc.in by CMake so the
+// version numbers cannot drift from project(VERSION).
+
+// ---------------------------------------------------------------------------------------------
+// FiveM's supported-build declaration.
+//
+// From build 2189 onward FiveM's ASI loader refuses any plugin that does not say it supports the
+// build being run. It asks with
+//
+//     FindResource(module, L"FX_ASI_BUILD", MAKEINTRESOURCE(GetGameBuild()))
+//
+// so in .rc terms the resource NAME is FX_ASI_BUILD and its TYPE is the build number -- one line
+// per build. Without them the loader prints "this ASI plugin does not claim to support game
+// build N" and never loads the DLL, so there is no log of ours to read and the overlay looks
+// like it does nothing.
+//
+// One line is not enough: servers pin their own build, so a plugin that claims only the newest
+// is refused on an older server. A line for a build that does not exist costs nothing; a missing
+// one fails silently. So claim the ladder broadly and add to it when FiveM moves.
+//
+// This is a claim about the loader, not about the renderer. The overlay hooks DXGI and nothing
+// game-specific, so it does not care which build of the game it is in -- if a build ever did
+// break it, it would say so in the log rather than crash.
+FX_ASI_BUILD 1604 BEGIN "\0" END
+FX_ASI_BUILD 2060 BEGIN "\0" END
+FX_ASI_BUILD 2189 BEGIN "\0" END
+FX_ASI_BUILD 2372 BEGIN "\0" END
+FX_ASI_BUILD 2545 BEGIN "\0" END
+FX_ASI_BUILD 2612 BEGIN "\0" END
+FX_ASI_BUILD 2699 BEGIN "\0" END
+FX_ASI_BUILD 2802 BEGIN "\0" END
+FX_ASI_BUILD 2944 BEGIN "\0" END
+FX_ASI_BUILD 3095 BEGIN "\0" END
+FX_ASI_BUILD 3258 BEGIN "\0" END
+FX_ASI_BUILD 3323 BEGIN "\0" END
+FX_ASI_BUILD 3407 BEGIN "\0" END
+FX_ASI_BUILD 3442 BEGIN "\0" END
+FX_ASI_BUILD 3570 BEGIN "\0" END
+FX_ASI_BUILD 3679 BEGIN "\0" END
+FX_ASI_BUILD 3751 BEGIN "\0" END
+FX_ASI_BUILD 3775 BEGIN "\0" END
+FX_ASI_BUILD 3788 BEGIN "\0" END
+FX_ASI_BUILD 3889 BEGIN "\0" END
+
+// ---------------------------------------------------------------------------------------------
+// Version information.
+//
+// Worth having for its own sake -- someone who right-clicks the file should see what it is and
+// where it came from -- and because an unsigned binary carrying no version information at all
+// scores worse with SmartScreen and Defender's heuristics than one that does.
+//
+// Literal numbers rather than the winver.h names, so the .rc never depends on an include path.
+1 VERSIONINFO
+FILEVERSION    @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+FILEFLAGSMASK  0x3fL
+FILEFLAGS      0x0L
+FILEOS         0x40004L
+FILETYPE       0x2L
+FILESUBTYPE    0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "FileDescription",  "TeamSpeak Overlay - shows your TeamSpeak channel in game"
+            VALUE "FileVersion",      "@PROJECT_VERSION@.0"
+            VALUE "InternalName",     "TeamSpeakOverlay"
+            VALUE "LegalCopyright",   "MIT licensed. See LICENSE."
+            VALUE "OriginalFilename", "TeamSpeakOverlay.asi"
+            VALUE "ProductName",      "TeamSpeak Overlay"
+            VALUE "ProductVersion",   "@PROJECT_VERSION@.0"
+            VALUE "Comments",         "Opens no network connection. Reads a local named pipe fed by the TeamSpeak 3 plugin."
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
