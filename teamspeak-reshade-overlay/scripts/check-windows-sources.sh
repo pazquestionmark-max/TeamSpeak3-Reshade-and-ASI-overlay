@@ -124,7 +124,7 @@ fi
 # which is a different compile of the same files and worth checking separately.
 ASI_SOURCES=(
   asi-integration/src/asi_main.cpp
-  asi-integration/src/d3d11_overlay.cpp
+  asi-integration/src/overlay_window.cpp
   reshade-integration/src/overlay_host.cpp
   reshade-integration/src/icons.cpp
   reshade-integration/src/font_engine.cpp

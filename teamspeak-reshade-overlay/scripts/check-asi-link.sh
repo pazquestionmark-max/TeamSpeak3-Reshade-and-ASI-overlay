@@ -67,7 +67,7 @@ THIRD_PARTY_CXX=(
 # bind to the real ImGui rather than to ReShade's inline forwarders.
 OURS=(
   asi-integration/src/asi_main.cpp
-  asi-integration/src/d3d11_overlay.cpp
+  asi-integration/src/overlay_window.cpp
   reshade-integration/src/overlay_host.cpp
   reshade-integration/src/font_engine.cpp
   reshade-integration/src/renderer.cpp
@@ -142,7 +142,7 @@ fi
 
 printf '%-52s ' "link TeamSpeakOverlay.asi"
 if output="$("$CXX" -shared -o "$OUT/TeamSpeakOverlay.asi" "$OUT"/*.o \
-              -ld3d11 -ldxgi -ld3dcompiler -ldwmapi -lgdi32 -ladvapi32 -lole32 -loleaut32 \
+              -ld3d11 -ldxgi -ldcomp -ld3dcompiler -ldwmapi -lgdi32 -ladvapi32 -lole32 -loleaut32 \
               -lshlwapi -static-libgcc -static-libstdc++ -static 2>&1)"; then
   echo "OK ($(stat -c %s "$OUT/TeamSpeakOverlay.asi") bytes)"
 else

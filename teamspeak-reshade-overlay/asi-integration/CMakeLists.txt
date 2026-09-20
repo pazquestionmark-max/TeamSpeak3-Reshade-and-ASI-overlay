@@ -34,7 +34,9 @@ target_compile_definitions(tsro_imgui PUBLIC
   NOMINMAX
 )
 # gdi32 for imgui_impl_win32's DPI path (GetDeviceCaps), dwmapi for its composition query.
-target_link_libraries(tsro_imgui PUBLIC d3d11 dxgi d3dcompiler dwmapi gdi32)
+# dcomp for the composition surface the overlay window draws through, dwmapi to extend
+# the frame so that window's own never-painted surface is not opaque black.
+target_link_libraries(tsro_imgui PUBLIC d3d11 dxgi dcomp d3dcompiler dwmapi gdi32)
 if(MSVC)
   target_compile_options(tsro_imgui PRIVATE /W0)
 else()
@@ -55,7 +57,7 @@ endif()
 
 add_library(tsro_asi SHARED
   src/asi_main.cpp
-  src/d3d11_overlay.cpp
+  src/overlay_window.cpp
   ${TSRO_ASI_RC}
   ${TSRO_OVERLAY_SOURCES}
 )
